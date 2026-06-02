@@ -299,14 +299,7 @@ MIT License — see LICENSE file for details.
 - [Service Control Manager](https://learn.microsoft.com/en-us/windows/win32/services/services)
 - [egui Documentation](https://docs.rs/egui/0.27/)
 - [goblin PE Parser](https://docs.rs/goblin/0.8/)
-
----
-
-## Author
-
-Hiroki Kogarumai (HHKK0127)  
-Email: Hiroki.Kogarumai@protonmail.com
-
+  
 ---
 
 **Last Updated**: 2026-05-29  
