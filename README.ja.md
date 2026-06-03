@@ -304,8 +304,7 @@ MIT ライセンス — LICENSE ファイルを参照してください。
 
 ## 著者
 
-小柄渕 寛樹（HHKK0127）  
-メール: Hiroki.Kogarumai@protonmail.com
+小柄渕 寛樹（HHKK0127）
 
 ---
 
