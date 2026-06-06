@@ -17,6 +17,27 @@ pub struct AnalyzerApp {
     pub remote_password: String,
     pub is_executing: bool,
 
+    // Service Management フィールド
+    pub service_host: String,
+    pub services: Vec<(String, String)>,
+    pub selected_service: Option<usize>,
+    pub service_status_message: String,
+
+    // Registry Browser フィールド
+    pub registry_host: String,
+    pub registry_path: String,
+    pub registry_entries: Vec<(String, String, String)>,
+    pub selected_registry_entry: Option<usize>,
+    pub registry_status_message: String,
+
+    // Script Executor フィールド
+    pub script_type: String,
+    pub script_content: String,
+    pub script_host: String,
+    pub script_arguments: String,
+    pub script_output: String,
+    pub script_status_message: String,
+
     // Output streaming receiver (not serialized)
     pub output_receiver: Option<std::sync::mpsc::Receiver<String>>,
 }
@@ -29,6 +50,9 @@ pub enum Tab {
     Strings,
     Signature,
     RemoteExecution,
+    ServiceManagement,
+    Registry,
+    Script,
 }
 
 impl Default for AnalyzerApp {
@@ -46,6 +70,21 @@ impl Default for AnalyzerApp {
             remote_username: String::new(),
             remote_password: String::new(),
             is_executing: false,
+            service_host: "localhost".to_string(),
+            services: Vec::new(),
+            selected_service: None,
+            service_status_message: "Click 'Refresh' to load services".to_string(),
+            registry_host: "localhost".to_string(),
+            registry_path: "HKEY_LOCAL_MACHINE".to_string(),
+            registry_entries: Vec::new(),
+            selected_registry_entry: None,
+            registry_status_message: "Enter registry path and click 'Browse'".to_string(),
+            script_type: "powershell".to_string(),
+            script_content: String::new(),
+            script_host: "localhost".to_string(),
+            script_arguments: String::new(),
+            script_output: String::new(),
+            script_status_message: "Ready to execute script".to_string(),
             output_receiver: None,
         }
     }
@@ -91,28 +130,30 @@ impl eframe::App for AnalyzerApp {
 
             ui.separator();
 
-            // Remote Execution タブは常に表示
+            // タブナビゲーション
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut self.selected_tab, Tab::RemoteExecution, "Remote Execution");
+                // PE Analyzer tabs
                 if self.result.is_some() {
-                    ui.separator();
                     ui.selectable_value(&mut self.selected_tab, Tab::Overview, "Overview");
                     ui.selectable_value(&mut self.selected_tab, Tab::PeInfo, "PE Info");
                     ui.selectable_value(&mut self.selected_tab, Tab::Imports, "Imports");
                     ui.selectable_value(&mut self.selected_tab, Tab::Strings, "Strings");
                     ui.selectable_value(&mut self.selected_tab, Tab::Signature, "Signature");
+                    ui.separator();
                 }
+
+                // Management tabs (常に表示)
+                ui.selectable_value(&mut self.selected_tab, Tab::RemoteExecution, "🖥️ Remote Exec");
+                ui.selectable_value(&mut self.selected_tab, Tab::ServiceManagement, "⚙️ Services");
+                ui.selectable_value(&mut self.selected_tab, Tab::Registry, "📋 Registry");
+                ui.selectable_value(&mut self.selected_tab, Tab::Script, "📝 Script");
             });
 
             ui.separator();
 
             match self.selected_tab {
-                Tab::RemoteExecution => {
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        show_remote_execution(ui, self);
-                    });
-                }
-                _ => {
+                // PE Analysis tabs
+                Tab::Overview | Tab::PeInfo | Tab::Imports | Tab::Strings | Tab::Signature => {
                     if let Some(res) = &self.result {
                         egui::ScrollArea::vertical().show(ui, |ui| {
                             match self.selected_tab {
@@ -121,7 +162,7 @@ impl eframe::App for AnalyzerApp {
                                 Tab::Imports => show_imports(ui, res, &mut self.filter),
                                 Tab::Strings => show_strings(ui, res, &mut self.filter),
                                 Tab::Signature => show_signature(ui, res),
-                                Tab::RemoteExecution => {} // handled above
+                                _ => {}
                             }
                         });
                     } else {
@@ -129,6 +170,27 @@ impl eframe::App for AnalyzerApp {
                             ui.label("Select a PE file to analyze.");
                         });
                     }
+                }
+                // Management tabs
+                Tab::RemoteExecution => {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        show_remote_execution(ui, self);
+                    });
+                }
+                Tab::ServiceManagement => {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        show_service_management(ui, self);
+                    });
+                }
+                Tab::Registry => {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        show_registry_browser(ui, self);
+                    });
+                }
+                Tab::Script => {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        show_script_executor(ui, self);
+                    });
                 }
             }
         });
@@ -407,5 +469,173 @@ fn show_remote_execution(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
             app.status = format!("Results exported to {}", path.display());
         }
     }
+}
+
+fn show_service_management(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
+    ui.heading("Service Management");
+    ui.separator();
+
+    // Host input
+    ui.horizontal(|ui| {
+        ui.label("Host:");
+        ui.text_edit_singleline(&mut app.service_host);
+        if ui.button("🔄 Refresh").clicked() {
+            app.service_status_message = format!("Loading services from {}...", app.service_host);
+        }
+    });
+
+    ui.separator();
+
+    // Services list
+    ui.label("Services:");
+    let available_height = ui.available_height() - 120.0;
+    egui::ScrollArea::vertical()
+        .max_height(available_height * 0.6)
+        .show(ui, |ui| {
+            for (idx, (name, state)) in app.services.iter().enumerate() {
+                let is_selected = app.selected_service == Some(idx);
+                if ui.selectable_label(is_selected, format!("⚙️ {} ({})", name, state)).clicked() {
+                    app.selected_service = Some(idx);
+                }
+            }
+        });
+
+    ui.separator();
+
+    // Action buttons
+    if app.selected_service.is_some() {
+        ui.horizontal(|ui| {
+            if ui.button("▶ Start").clicked() {
+                app.service_status_message = "Starting service...".to_string();
+            }
+            if ui.button("⏹ Stop").clicked() {
+                app.service_status_message = "Stopping service...".to_string();
+            }
+            if ui.button("↻ Restart").clicked() {
+                app.service_status_message = "Restarting service...".to_string();
+            }
+            if ui.button("🗑 Delete").clicked() {
+                app.service_status_message = "Deleting service...".to_string();
+            }
+        });
+    }
+
+    ui.separator();
+    ui.label(&app.service_status_message);
+}
+
+fn show_registry_browser(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
+    ui.heading("Registry Browser");
+    ui.separator();
+
+    // Host & Path input
+    ui.horizontal(|ui| {
+        ui.label("Host:");
+        ui.text_edit_singleline(&mut app.registry_host);
+    });
+
+    ui.horizontal(|ui| {
+        ui.label("Path:");
+        ui.text_edit_singleline(&mut app.registry_path);
+        if ui.button("🔍 Browse").clicked() {
+            app.registry_status_message = format!("Loading: {}", app.registry_path);
+        }
+    });
+
+    ui.separator();
+
+    // Registry entries
+    ui.label("Entries:");
+    let available_height = ui.available_height() - 150.0;
+    egui::ScrollArea::vertical()
+        .max_height(available_height * 0.5)
+        .show(ui, |ui| {
+            for (idx, (name, value_type, _)) in app.registry_entries.iter().enumerate() {
+                let is_selected = app.selected_registry_entry == Some(idx);
+                if ui.selectable_label(is_selected, format!("{} ({})", name, value_type)).clicked() {
+                    app.selected_registry_entry = Some(idx);
+                }
+            }
+        });
+
+    ui.separator();
+
+    // Action buttons
+    if app.selected_registry_entry.is_some() {
+        ui.horizontal(|ui| {
+            if ui.button("✏ Edit").clicked() {
+                app.registry_status_message = "Editing registry value...".to_string();
+            }
+            if ui.button("🗑 Delete").clicked() {
+                app.registry_status_message = "Deleting registry value...".to_string();
+            }
+        });
+    }
+
+    ui.separator();
+    ui.label(&app.registry_status_message);
+}
+
+fn show_script_executor(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
+    ui.heading("Script Executor");
+    ui.separator();
+
+    // Host input
+    ui.horizontal(|ui| {
+        ui.label("Host:");
+        ui.text_edit_singleline(&mut app.script_host);
+    });
+
+    // Script type selector
+    ui.horizontal(|ui| {
+        ui.label("Type:");
+        if ui.button("PowerShell").clicked() { app.script_type = "powershell".to_string(); }
+        if ui.button("VBScript").clicked() { app.script_type = "vbscript".to_string(); }
+        if ui.button("Batch").clicked() { app.script_type = "batch".to_string(); }
+        if ui.button("JavaScript").clicked() { app.script_type = "javascript".to_string(); }
+    });
+
+    ui.separator();
+
+    // Script editor
+    ui.label("Script:");
+    let available_height = ui.available_height() - 200.0;
+    egui::ScrollArea::vertical()
+        .max_height(available_height * 0.4)
+        .show(ui, |ui| {
+            ui.text_edit_multiline(&mut app.script_content);
+        });
+
+    ui.separator();
+
+    // Arguments input
+    ui.horizontal(|ui| {
+        ui.label("Arguments:");
+        ui.text_edit_singleline(&mut app.script_arguments);
+    });
+
+    ui.separator();
+
+    // Execute button
+    if ui.button("▶ Execute").clicked() {
+        app.script_status_message = "Executing script...".to_string();
+    }
+
+    ui.separator();
+
+    // Output display
+    ui.label("Output:");
+    egui::ScrollArea::vertical()
+        .max_height(available_height * 0.3)
+        .show(ui, |ui| {
+            if app.script_output.is_empty() {
+                ui.label("[No output yet]");
+            } else {
+                ui.monospace(&app.script_output);
+            }
+        });
+
+    ui.separator();
+    ui.label(&app.script_status_message);
 }
 
