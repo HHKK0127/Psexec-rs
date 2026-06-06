@@ -72,10 +72,13 @@ The application has three execution paths, controlled by command-line arguments:
 
 | Module | Lines | Purpose |
 |--------|-------|---------|
-| `main.rs` | 346 | Entry point; dispatches to GUI/CLI/service modes; wraps Win32 API calls |
+| `main.rs` | 346 | Entry point; dispatches to GUI/CLI/service modes; tokio runtime integration |
 | `analyzer.rs` | 220 | PE file parsing; hash computation; string extraction; version info querying |
-| `ui.rs` | 211 | egui app state and rendering; five-tab UI for analysis results |
-| `cli.rs` | ~150 | Command-line argument parsing (PsExec-compatible syntax) |
+| `ui.rs` | 1000+ | egui app state and rendering; eight-tab UI with async task management; color-coded status messages |
+| `cli.rs` | ~150 | Command-line argument parsing (PsExec-compatible syntax; ModernCli integration) |
+| `cli_handlers.rs` | 650+ | Six async handler functions for exec/service/registry/script/transfer/shell commands |
+| `cli_response.rs` | 135 | Structured response types (ServiceListResponse, RegistryListResponse, etc.) with ServiceState enum |
+| `config.rs` | 250+ | AppConfig struct with JSON persistence; CacheEntry<T> generic; ResultCache manager |
 | `settings.rs` | ~150 | Configuration structs for local and remote execution |
 | `process.rs` | ~100 | `CreateProcessW` wrapper; process handle/token management |
 | `remote.rs` | ~100 | SMB/UNC path handling; admin share connection |
@@ -84,25 +87,18 @@ The application has three execution paths, controlled by command-line arguments:
 | `proto.rs` | ~100 | Binary message serialization/deserialization |
 | `winapi_utils.rs` | 135 | Win32 API helpers: version info, Authenticode signature verification |
 
-## Critical Known Issues
+## Implementation Status
 
-### 1. **Buffer Over-Read in `winapi_utils.rs:76`** (UB — MUST FIX)
-```rust
-let slice = std::slice::from_raw_parts(ptr as *const u16, len as usize);
-```
-`VerQueryValueW` returns length in **bytes**, not elements. For "1.0.0.0\0" (16 bytes), this reads 32 bytes = 16-byte OOB read.
+### ✅ Phase 3.5-7 Complete
 
-**Fix**: `len as usize / 2` to convert byte count to u16 count.
+**Phase 3.5-4**: Modern CLI (clap 4.4) + egui GUI integration with Structured Response Types  
+**Phase 4.5-4.6**: Registry/Service Dialog implementations + Script Output Export  
+**Phase 5-6**: Timeout Settings + Batch Operations Engine with progress visualization  
+**Phase 7**: Config Persistence (JSON) + Result Caching Infrastructure  
 
-### 2. **UI Thread Blocking** (`analyzer.rs:62–98`)
-File analysis (I/O, hashing, PE parsing, Win32 calls) runs synchronously on the UI thread. Files >1 second freeze the GUI completely.
-
-**Fix**: Move to worker thread via `std::thread::spawn` + `std::sync::mpsc` channel.
-
-### 3. **No File Size Limit** (`analyzer.rs:63`)
-`fs::read(path)` loads entire file into memory with no upper bound. Multi-GB files cause OOM.
-
-**Fix**: Add upper limit (suggested: 200 MB), validate before reading.
+**Test Coverage**: 81/81 tests passing  
+**Build Status**: Release binary (2.6 MB) - statically linked, no DLL dependencies  
+**Async Pattern**: std::thread::spawn + tokio::runtime + mpsc::try_recv() for non-blocking UI
 
 ## Architecture Notes
 
@@ -146,18 +142,28 @@ Binary messages defined in `proto.rs`:
 - `cli.rs`: Test argument parsing (computer lists, flags, app names)
 - `process.rs`, `remote.rs`, `scm.rs`: Manual testing on a Windows domain (requires test VM with multiple computers)
 
-## Development Workflow
+## Development Workflow (Phase 3.5-7)
 
 ### Adding a feature to GUI analyzer
 1. Add analysis logic to `analyzer.rs` (add struct field to `AnalysisResult`)
 2. Update `ui.rs` to render the new data in appropriate tab
 3. Test via `cargo run --release`
 
-### Adding a new CLI flag
-1. Add field to `RemoteSettings` in `settings.rs`
-2. Parse in `cli.rs:parse_command_line()`
-3. Apply in `process.rs` or `scm.rs` (depending on scope)
-4. Update usage text in `cli.rs:print_usage()`
+### Adding a new Modern CLI command
+1. Add variant to `Commands` enum in `cli.rs`
+2. Create handler in `cli_handlers.rs` (async function)
+3. Define response type in `cli_response.rs`
+4. Parse in ModernCli derive macro
+5. Wire in `main.rs:run_modern_cli()`
+6. Test: `cargo test` and `cargo run --release -- <command>`
+
+### Integrating GUI with CLI Handlers
+1. Add state fields to `AnalyzerApp` in `ui.rs` (e.g., `service_list_rx`)
+2. Create spawning function (e.g., `spawn_service_list_task()`)
+3. In button click: call spawn function with host/filter parameters
+4. In `update()`: check `try_recv()` for async results
+5. Update UI state fields with received data
+6. Display with color coding (Green=success, Red=error, Blue=info)
 
 ### Fixing remote execution issues
 1. Enable `RUST_LOG=debug cargo run --release -- <args>` to see debug output
@@ -165,15 +171,24 @@ Binary messages defined in `proto.rs`:
 3. Verify `proto.rs` serialization/deserialization
 4. Test on actual remote computer or local VM
 
+### Configuration & Caching
+1. Use `AppConfig::load()` on startup to restore user preferences
+2. Call `config.save()` after configuration changes
+3. Check `ResultCache::is_valid()` before using cached results
+4. TTL is configurable via `cache.ttl_seconds`
+
 ## Dependencies & Build Notes
 
 Key dependencies (pinned versions in Cargo.toml):
-- **egui 0.27** — UI framework (older version for stability)
+- **egui 0.27** — UI framework (older version for stability; immediate-mode)
 - **windows 0.52** — Safe Win32 API bindings (version pinned to avoid breaking changes)
 - **goblin 0.8** — Pure-Rust PE parser
 - **rfd 0.14** — Native file dialogs
 - **chrono 0.4** — Timestamp formatting
 - **sha2, hex** — Hashing and encoding
+- **tokio** — Async runtime for non-blocking I/O
+- **clap 4.4** — Modern CLI argument parsing (derive API)
+- **serde_json** — Configuration persistence
 
 **Network restriction**: Current environment is offline from crates.io. Prebuilt `/deps/psexec_rs.exe` is available for testing. If building from scratch is needed, configure a local registry mirror or vendored dependencies.
 

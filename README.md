@@ -6,7 +6,7 @@ A comprehensive Windows remote command execution and management tool written in 
 
 ![Rust](https://img.shields.io/badge/Rust-1.70+-red)
 ![Windows](https://img.shields.io/badge/Platform-Windows%20x86--64-blue)
-![Tests](https://img.shields.io/badge/Tests-72%2F72%20passing-green)
+![Tests](https://img.shields.io/badge/Tests-81%2F81%20passing-green)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 ## README
