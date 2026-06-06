@@ -68,6 +68,15 @@ pub struct AnalyzerApp {
     pub service_op_result: Option<Result<OperationResult, String>>,
     pub registry_op_result: Option<Result<OperationResult, String>>,
 
+    // Timeout & Performance settings
+    pub timeout_seconds: u32,
+    pub enable_caching: bool,
+
+    // Batch operations state
+    pub batch_select_mode: bool,
+    pub batch_selected_services: Vec<usize>,
+    pub batch_operation: String, // "start", "stop", "restart", "delete"
+
     // Output streaming receiver (not serialized)
     pub output_receiver: Option<std::sync::mpsc::Receiver<String>>,
 }
@@ -136,6 +145,11 @@ impl Default for AnalyzerApp {
             script_exec_rx: None,
             service_op_result: None,
             registry_op_result: None,
+            timeout_seconds: 30,
+            enable_caching: false,
+            batch_select_mode: false,
+            batch_selected_services: Vec::new(),
+            batch_operation: String::new(),
             output_receiver: None,
         }
     }
@@ -794,6 +808,30 @@ fn show_service_management(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
     ui.heading("⚙️ Service Management");
     ui.separator();
 
+    // Settings panel
+    ui.collapsing("⚡ Settings", |ui| {
+        ui.horizontal(|ui| {
+            ui.label("Timeout (seconds):");
+            ui.add(egui::Slider::new(&mut app.timeout_seconds, 5..=300)
+                .step_by(5.0)
+                .text("sec"));
+        });
+
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut app.enable_caching, "Enable Result Caching");
+            ui.label("(Cache results for 1 minute)");
+        });
+
+        ui.horizontal(|ui| {
+            if ui.button("🔄 Reset Defaults").clicked() {
+                app.timeout_seconds = 30;
+                app.enable_caching = false;
+            }
+        });
+    });
+
+    ui.separator();
+
     // Host input with history dropdown
     ui.horizontal(|ui| {
         ui.label("Host:");
@@ -835,8 +873,43 @@ fn show_service_management(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
 
     ui.separator();
 
+    // Batch mode controls
+    ui.horizontal(|ui| {
+        if ui.button(if app.batch_select_mode { "✓ Batch Mode" } else { "☐ Batch Mode" }).clicked() {
+            app.batch_select_mode = !app.batch_select_mode;
+            if !app.batch_select_mode {
+                app.batch_selected_services.clear();
+            }
+        }
+
+        if app.batch_select_mode && !app.batch_selected_services.is_empty() {
+            ui.label(format!("Selected: {}", app.batch_selected_services.len()));
+
+            egui::ComboBox::from_label("Batch Op:")
+                .selected_text(&app.batch_operation)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut app.batch_operation, "start".to_string(), "Start");
+                    ui.selectable_value(&mut app.batch_operation, "stop".to_string(), "Stop");
+                    ui.selectable_value(&mut app.batch_operation, "restart".to_string(), "Restart");
+                });
+
+            if ui.button("▶ Execute Batch").clicked() {
+                if !app.batch_operation.is_empty() {
+                    app.service_status_message = format!(
+                        "Executing batch {}: {} services",
+                        app.batch_operation,
+                        app.batch_selected_services.len()
+                    );
+                    // TODO: Implement batch operation execution
+                }
+            }
+        }
+    });
+
+    ui.separator();
+
     // Services list
-    ui.label(format!("Services ({} found):", app.services.len()));
+    ui.label(format!("Services ({} found, {} selected):", app.services.len(), app.batch_selected_services.len()));
     let available_height = ui.available_height() - 140.0;
     egui::ScrollArea::vertical()
         .max_height(available_height * 0.6)
@@ -848,14 +921,33 @@ fn show_service_management(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
 
             for (idx, (name, state)) in app.services.iter().enumerate() {
                 let is_selected = app.selected_service == Some(idx);
+                let is_batch_selected = app.batch_selected_services.contains(&idx);
                 let color = match state.as_str() {
                     "Running" => egui::Color32::GREEN,
                     "Stopped" => egui::Color32::RED,
                     _ => egui::Color32::YELLOW,
                 };
-                let label = egui::RichText::new(format!("⚙️ {} [{}]", name, state)).color(color);
-                if ui.selectable_label(is_selected, label).clicked() {
-                    app.selected_service = Some(idx);
+
+                if app.batch_select_mode {
+                    // Batch selection mode: show checkboxes
+                    ui.horizontal(|ui| {
+                        let mut checked = is_batch_selected;
+                        if ui.checkbox(&mut checked, format!("⚙️ {} [{}]", name, state)).clicked() {
+                            if checked {
+                                if !app.batch_selected_services.contains(&idx) {
+                                    app.batch_selected_services.push(idx);
+                                }
+                            } else {
+                                app.batch_selected_services.retain(|&i| i != idx);
+                            }
+                        }
+                    });
+                } else {
+                    // Normal selection mode: selectable label
+                    let label = egui::RichText::new(format!("⚙️ {} [{}]", name, state)).color(color);
+                    if ui.selectable_label(is_selected, label).clicked() {
+                        app.selected_service = Some(idx);
+                    }
                 }
             }
         });
