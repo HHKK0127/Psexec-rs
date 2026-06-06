@@ -1,11 +1,15 @@
 # PAExec-rs
 
+[English](#readme) | [日本語](#日本語版)
+
 A comprehensive Windows remote command execution and management tool written in Rust. A modern port of PsExec with support for multiple authentication methods, execution techniques, file transfer, service management, registry operations, and script execution.
 
 ![Rust](https://img.shields.io/badge/Rust-1.70+-red)
 ![Windows](https://img.shields.io/badge/Platform-Windows%20x86--64-blue)
 ![Tests](https://img.shields.io/badge/Tests-72%2F72%20passing-green)
 ![License](https://img.shields.io/badge/License-MIT-green)
+
+## README
 
 ## Features
 
@@ -676,3 +680,205 @@ MIT License — see LICENSE file for details.
 **Last Updated**: 2026-06-06  
 **Status**: Active Development (Phase 3.5 Integration)  
 **Test Coverage**: 72/72 tests passing (100%)
+
+---
+
+# 日本語版
+
+## プロジェクト概要
+
+**PAExec-rs** は Rust で実装された Windows リモートコマンド実行・管理ツールです。PsExec の最新ポートで、複数の認証方式、実行方法、ファイル転送、サービス管理、レジストリ操作、スクリプト実行に対応しています。
+
+## 主な機能
+
+### 🔍 **モード 1: GUI PE ファイルアナライザー**
+- PE ファイルのインタラクティブ分析
+- メタデータ表示（サイズ、タイムスタンプ、SHA-256 ハッシュ）
+- PE ヘッダ解析（マシンタイプ、サブシステム、エントリポイント）
+- インポート関数の抽出
+- バイナリ内の文字列抽出（フィルター機能付き）
+- バージョン情報の表示（FileVersion、CompanyName など）
+- Authenticode 署名検証
+- リアルタイム検索タブ
+
+### 🖥️ **モード 2: CLI リモート実行（モダン & レガシー）**
+
+#### モダン CLI（clap ベース）
+```bash
+psexec-rs service list --host <ホスト名>
+psexec-rs registry read --host <ホスト名> --key <キー> --value <値>
+psexec-rs script --type ps --file <スクリプト.ps1> --host <ホスト名>
+```
+
+#### レガシー PsExec 互換形式
+```bash
+psexec-rs \\コンピュータ名 cmd /c "whoami"
+psexec-rs \\comp1,comp2,comp3 cmd /c "ipconfig"
+```
+
+#### Phase 1-3 機能：
+
+**認証方式：**
+- CurrentUser（パススルー）
+- 明示的な認証情報（DOMAIN\user:password）
+- NT ハッシュ認証
+- Kerberos 認証
+
+**実行方式：**
+- SMB ベースのサービス実行
+- WMI（Windows Management Instrumentation）
+- Task Scheduler
+- DCOM（Distributed Component Object Model）
+
+**ファイル転送：**
+- チャンク分割 SMB 転送（SHA-256 検証付き）
+- アップロード/ダウンロード（進捗トラッキング）
+- ディレクトリ転送
+- 自動 UNC パス処理
+
+**出力取得：**
+- Named Pipe（メッセージモード）
+- SMB ファイルベース出力取得
+- ストリーミング出力（タイムアウト付き）
+- 文字エンコーディング自動検出（UTF-8、UTF-16、Shift_JIS など）
+
+**サービス管理：**
+- サービス一覧表示（フィルター機能）
+- サービス詳細取得
+- サービスの開始/停止/再起動
+- サービスの作成/削除
+- ステータス確認
+- スタートアップタイプ設定
+
+**レジストリ操作：**
+- レジストリ値の読み取り/書き込み/削除
+- レジストリキーの列挙
+- 複数の値型対応（REG_SZ、REG_DWORD など）
+- すべてのレジストリハイブに対応
+
+**スクリプト実行：**
+- PowerShell（実行ポリシー管理付き）
+- VBScript
+- Batch スクリプト
+- JavaScript（WSH 対応）
+- 引数とリポート変数のサポート
+
+### 🔧 **モード 3: Windows サービスエージェント**
+- Windows サービスとして実行
+- Named Pipe リスナー（`\\.\pipe\PAExec-rs`）
+- バイナリメッセージのシリアライズ/デシリアライズ
+- プロセス実行とリターンコード報告
+- 孤立したサービスの自動クリーンアップ
+
+## インストール
+
+### ビルド方法
+
+```bash
+# リリースビルド
+cargo build --release
+
+# テスト実行
+cargo test --lib
+
+# 出力：target/release/psexec_rs.exe
+```
+
+## 使用方法
+
+### モダン CLI - サービス管理
+
+```bash
+# サービス一覧表示
+psexec-rs service list
+
+# リモートホストのサービス一覧
+psexec-rs service list --host targetmachine
+
+# サービス開始
+psexec-rs service start --host targetmachine --name "ServiceName"
+
+# サービス作成
+psexec-rs service create --host targetmachine --name "MyService" --path "C:\path\to\executable.exe"
+```
+
+### モダン CLI - レジストリ操作
+
+```bash
+# レジストリ値読み取り
+psexec-rs registry read --key "HKEY_LOCAL_MACHINE\Software" --value "Test"
+
+# レジストリ値書き込み
+psexec-rs registry write --key "HKEY_LOCAL_MACHINE\Software" --value "Test" --data "TestValue" --type REG_SZ
+
+# レジストリキー列挙
+psexec-rs registry list --key "HKEY_LOCAL_MACHINE\Software"
+```
+
+### モダン CLI - スクリプト実行
+
+```bash
+# PowerShell スクリプト実行
+psexec-rs script --type ps --file "C:\scripts\script.ps1" --host targetmachine
+
+# Batch スクリプト実行
+psexec-rs script --type batch --file "C:\scripts\script.bat" --host targetmachine
+```
+
+## テスト
+
+### ユニットテスト実行
+
+```bash
+# すべてのテスト実行
+cargo test --lib
+
+# テスト結果：72/72 成功（100%）
+```
+
+### テストモジュール
+
+- ✅ 認証：4 テスト
+- ✅ 実行メソッド：5 テスト
+- ✅ ファイル転送：8 テスト
+- ✅ 出力取得：6 テスト
+- ✅ サービス管理：9 テスト
+- ✅ レジストリ操作：7 テスト
+- ✅ スクリプト実行：8 テスト
+- ✅ CLI ハンドラ：6 テスト
+- ✅ パイプ通信：6 テスト
+
+## 実装状況
+
+### 完了フェーズ
+- ✅ **Phase 1**: 認証 & 実行メソッド（21 テスト）
+- ✅ **Phase 2**: ファイル転送 & 出力取得（18 テスト）
+- ✅ **Phase 3**: サービス・レジストリ・スクリプト管理（27 テスト）
+- 🔄 **Phase 3.5**: CLI 統合 & GUI 管理タブ（進行中）
+
+### 次のステップ
+- GUI タブの egui 統合
+- 実環境での統合テスト
+- パフォーマンス最適化
+
+## セキュリティに関する注意
+
+- **未署名バイナリ**: ユーザーが SmartScreen の警告を見る場合があります
+- **クレデンシャルの取り扱い**: コマンドラインでのパスワード指定は避けてください（環境変数を推奨）
+- **ファイルパス**: 分析結果の出力パスは機密情報です
+
+## ライセンス
+
+MIT ライセンス — LICENSE ファイルを参照してください。
+
+## 作者
+
+**原著者**: 小柄梅 寛貴（HHKK0127）
+
+**Phase 1-3 実装**: Claude（Anthropic）
+
+---
+
+**最終更新**: 2026-06-06  
+**ステータス**: 活発に開発中（Phase 3.5 統合）  
+**テストカバレッジ**: 72/72 テスト成功（100%）
