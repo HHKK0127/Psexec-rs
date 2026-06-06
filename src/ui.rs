@@ -2,6 +2,7 @@ use crate::analyzer::AnalysisResult;
 use eframe::egui;
 use std::sync::mpsc;
 use psexec_rs::cli_response::{ServiceListResponse, RegistryListResponse, ScriptExecResult, OperationResult};
+use chrono;
 
 pub struct AnalyzerApp {
     pub result: Option<AnalysisResult>,
@@ -31,6 +32,12 @@ pub struct AnalyzerApp {
     pub registry_entries: Vec<(String, String, String)>,
     pub selected_registry_entry: Option<usize>,
     pub registry_status_message: String,
+
+    // Registry Edit Dialog フィールド
+    pub registry_edit_open: bool,
+    pub registry_edit_name: String,
+    pub registry_edit_type: String,
+    pub registry_edit_value: String,
 
     // Script Executor フィールド
     pub script_type: String,
@@ -94,6 +101,10 @@ impl Default for AnalyzerApp {
             registry_entries: Vec::new(),
             selected_registry_entry: None,
             registry_status_message: "Enter registry path and click 'Browse'".to_string(),
+            registry_edit_open: false,
+            registry_edit_name: String::new(),
+            registry_edit_type: "REG_SZ".to_string(),
+            registry_edit_value: String::new(),
             script_type: "powershell".to_string(),
             script_content: String::new(),
             script_host: "localhost".to_string(),
@@ -437,6 +448,9 @@ impl eframe::App for AnalyzerApp {
                 }
             }
         });
+
+        // Show registry edit dialog if open
+        show_registry_edit_dialog(ctx, self);
     }
 }
 
@@ -835,6 +849,82 @@ fn show_service_management(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
     ui.colored_label(status_color, &app.service_status_message);
 }
 
+fn show_registry_edit_dialog(ctx: &egui::Context, app: &mut AnalyzerApp) {
+    if app.registry_edit_open {
+        egui::Window::new("Edit Registry Entry")
+            .resizable(false)
+            .collapsible(false)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Name:");
+                    ui.text_edit_singleline(&mut app.registry_edit_name);
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Type:");
+                    egui::ComboBox::from_label("")
+                        .selected_text(&app.registry_edit_type)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut app.registry_edit_type, "REG_SZ".to_string(), "REG_SZ (String)");
+                            ui.selectable_value(&mut app.registry_edit_type, "REG_DWORD".to_string(), "REG_DWORD (32-bit)");
+                            ui.selectable_value(&mut app.registry_edit_type, "REG_QWORD".to_string(), "REG_QWORD (64-bit)");
+                            ui.selectable_value(&mut app.registry_edit_type, "REG_BINARY".to_string(), "REG_BINARY");
+                        });
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Value:");
+                    ui.text_edit_singleline(&mut app.registry_edit_value);
+                });
+
+                ui.separator();
+
+                ui.horizontal(|ui| {
+                    if ui.button("✓ Save").clicked() {
+                        if !app.registry_edit_name.is_empty() && !app.registry_edit_value.is_empty() {
+                            let host = app.registry_host.clone();
+                            let path = app.registry_path.clone();
+                            let value_name = app.registry_edit_name.clone();
+                            let value_data = app.registry_edit_value.clone();
+                            let value_type = app.registry_edit_type.clone();
+
+                            app.registry_status_message = format!(
+                                "Saving registry value: {}\\{}",
+                                path, value_name
+                            );
+
+                            // Spawn async task for registry write
+                            let (tx, _rx) = mpsc::channel();
+                            std::thread::spawn(move || {
+                                let rt = tokio::runtime::Runtime::new().unwrap();
+                                let result = rt.block_on(async {
+                                    psexec_rs::cli_handlers::write_registry_op(
+                                        Some(host),
+                                        path,
+                                        value_name,
+                                        value_data,
+                                        value_type,
+                                    )
+                                    .await
+                                    .map_err(|e| e.to_string())
+                                });
+                                let _ = tx.send(result);
+                            });
+
+                            app.registry_edit_open = false;
+                        } else {
+                            app.registry_status_message = "Name and Value are required".to_string();
+                        }
+                    }
+
+                    if ui.button("✗ Cancel").clicked() {
+                        app.registry_edit_open = false;
+                    }
+                });
+            });
+    }
+}
+
 fn show_registry_browser(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
     ui.heading("📋 Registry Browser");
     ui.separator();
@@ -919,13 +1009,48 @@ fn show_registry_browser(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
     if app.selected_registry_entry.is_some() && !app.registry_list_loading {
         ui.horizontal(|ui| {
             if ui.button("✏ Edit").clicked() {
-                if let Some((name, _, _)) = app.registry_entries.get(app.selected_registry_entry.unwrap()) {
-                    app.registry_status_message = format!("✓ Editing: {}", name);
+                if let Some((name, value_type, data)) = app.registry_entries.get(app.selected_registry_entry.unwrap()) {
+                    app.registry_edit_name = name.clone();
+                    app.registry_edit_type = value_type.clone();
+                    app.registry_edit_value = data.clone();
+                    app.registry_edit_open = true;
                 }
             }
             if ui.button("🗑 Delete").clicked() {
                 if let Some((name, _, _)) = app.registry_entries.get(app.selected_registry_entry.unwrap()) {
-                    app.registry_status_message = format!("✓ Deleting: {}", name);
+                    let host = app.registry_host.clone();
+                    let path = app.registry_path.clone();
+                    let value_name = name.clone();
+
+                    app.registry_status_message = format!("Deleting: {}", name);
+
+                    // Spawn async delete task
+                    let (tx, rx) = mpsc::channel();
+                    std::thread::spawn(move || {
+                        let rt = tokio::runtime::Runtime::new().unwrap();
+                        let result = rt.block_on(async {
+                            psexec_rs::cli_handlers::delete_registry_op(Some(host), path, value_name)
+                                .await
+                                .map_err(|e| e.to_string())
+                        });
+                        let _ = tx.send(result);
+                    });
+
+                    // Try to get result immediately (or will be handled next frame)
+                    if let Ok(result) = rx.try_recv() {
+                        match result {
+                            Ok(op_result) => {
+                                if op_result.success {
+                                    app.registry_status_message = format!("✓ {}", op_result.message);
+                                } else {
+                                    app.registry_status_message = format!("❌ {}", op_result.message);
+                                }
+                            }
+                            Err(e) => {
+                                app.registry_status_message = format!("❌ Error: {}", e);
+                            }
+                        }
+                    }
                 }
             }
         });
@@ -1025,8 +1150,40 @@ fn show_script_executor(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
 
     ui.separator();
 
+    // Output display header with export button
+    ui.horizontal(|ui| {
+        ui.label("Output:");
+
+        if !app.script_output.is_empty() {
+            if ui.button("💾 Export Output").clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("Text", &["txt"])
+                    .add_filter("Log", &["log"])
+                    .set_file_name(&format!("script_output_{}.txt",
+                        chrono::Local::now().format("%Y%m%d_%H%M%S")))
+                    .save_file()
+                {
+                    match std::fs::write(&path, &app.script_output) {
+                        Ok(_) => {
+                            app.script_status_message = format!("✓ Output saved to {}", path.display());
+                        }
+                        Err(e) => {
+                            app.script_status_message = format!("❌ Error saving file: {}", e);
+                        }
+                    }
+                }
+            }
+        }
+
+        if !app.script_output.is_empty() {
+            if ui.button("🗑 Clear Output").clicked() {
+                app.script_output.clear();
+                app.script_status_message = "Output cleared".to_string();
+            }
+        }
+    });
+
     // Output display
-    ui.label("Output:");
     egui::ScrollArea::vertical()
         .max_height(available_height * 0.35)
         .auto_shrink([false; 2])
