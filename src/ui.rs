@@ -22,9 +22,17 @@ pub struct AnalyzerApp {
 
     // Service Management フィールド
     pub service_host: String,
+    pub service_host_history: Vec<String>,
     pub services: Vec<(String, String)>,
     pub selected_service: Option<usize>,
     pub service_status_message: String,
+
+    // Service Create Dialog フィールド
+    pub service_create_open: bool,
+    pub service_create_name: String,
+    pub service_create_path: String,
+    pub service_create_display_name: String,
+    pub service_create_startup_type: String,
 
     // Registry Browser フィールド
     pub registry_host: String,
@@ -93,9 +101,15 @@ impl Default for AnalyzerApp {
             remote_password: String::new(),
             is_executing: false,
             service_host: "localhost".to_string(),
+            service_host_history: vec!["localhost".to_string()],
             services: Vec::new(),
             selected_service: None,
             service_status_message: "Click 'Refresh' to load services".to_string(),
+            service_create_open: false,
+            service_create_name: String::new(),
+            service_create_path: String::new(),
+            service_create_display_name: String::new(),
+            service_create_startup_type: "Automatic".to_string(),
             registry_host: "localhost".to_string(),
             registry_path: "HKEY_LOCAL_MACHINE".to_string(),
             registry_entries: Vec::new(),
@@ -236,6 +250,51 @@ fn spawn_service_restart_task(
             psexec_rs::cli_handlers::restart_service_op(Some(host), service_name)
                 .await
                 .map_err(|e| e.to_string())
+        });
+        let _ = tx.send(result);
+    });
+
+    rx
+}
+
+fn spawn_service_create_task(
+    host: String,
+    name: String,
+    display_name: String,
+    path: String,
+) -> mpsc::Receiver<Result<OperationResult, String>> {
+    let (tx, rx) = mpsc::channel();
+
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(async {
+            // Use the CLI handler's create_service API
+            let ctx = psexec_rs::ServiceContext::new(&host);
+            match psexec_rs::service::create_service(
+                &ctx,
+                &name,
+                &display_name,
+                &path,
+                psexec_rs::ServiceStartupType::Automatic,
+            )
+            .await
+            {
+                Ok(result) => {
+                    if result.success {
+                        Ok(OperationResult::success(format!(
+                            "Service '{}' created successfully",
+                            name
+                        )))
+                    } else {
+                        Ok(OperationResult::error(
+                            result
+                                .error_message
+                                .unwrap_or_else(|| "Unknown error".to_string()),
+                        ))
+                    }
+                }
+                Err(e) => Err(e.to_string()),
+            }
         });
         let _ = tx.send(result);
     });
@@ -448,6 +507,9 @@ impl eframe::App for AnalyzerApp {
                 }
             }
         });
+
+        // Show service create dialog if open
+        show_service_create_dialog(ctx, self);
 
         // Show registry edit dialog if open
         show_registry_edit_dialog(ctx, self);
@@ -732,16 +794,35 @@ fn show_service_management(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
     ui.heading("⚙️ Service Management");
     ui.separator();
 
-    // Host input
+    // Host input with history dropdown
     ui.horizontal(|ui| {
         ui.label("Host:");
-        ui.text_edit_singleline(&mut app.service_host);
+
+        // Host dropdown history
+        egui::ComboBox::from_label("")
+            .selected_text(&app.service_host)
+            .show_ui(ui, |ui| {
+                for hist_host in &app.service_host_history.clone() {
+                    if ui.selectable_value(&mut app.service_host, hist_host.clone(), hist_host).clicked() {
+                        // Host selected from history
+                    }
+                }
+            });
 
         if app.service_list_loading {
             ui.label("⏳ Loading...");
         } else if ui.button("🔄 Refresh").clicked() {
             let host = app.service_host.clone();
             if !host.is_empty() {
+                // Add to history if not already present
+                if !app.service_host_history.contains(&host) {
+                    app.service_host_history.insert(0, host.clone());
+                    // Keep history to max 10 items
+                    if app.service_host_history.len() > 10 {
+                        app.service_host_history.pop();
+                    }
+                }
+
                 app.service_status_message = format!("Loading services from {}...", host);
                 app.service_list_loading = true;
                 let rx = spawn_service_list_task(host.clone());
@@ -836,6 +917,13 @@ fn show_service_management(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
         });
     }
 
+    // Create Service button (always available)
+    if !app.service_list_loading {
+        if ui.button("➕ Create New Service").clicked() {
+            app.service_create_open = true;
+        }
+    }
+
     ui.separator();
 
     let status_color = if app.service_status_message.contains("Error") || app.service_status_message.contains("error") {
@@ -847,6 +935,91 @@ fn show_service_management(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
     };
 
     ui.colored_label(status_color, &app.service_status_message);
+}
+
+fn show_service_create_dialog(ctx: &egui::Context, app: &mut AnalyzerApp) {
+    if app.service_create_open {
+        egui::Window::new("Create New Service")
+            .resizable(false)
+            .collapsible(false)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Service Name:");
+                    ui.text_edit_singleline(&mut app.service_create_name);
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Display Name:");
+                    ui.text_edit_singleline(&mut app.service_create_display_name);
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Executable Path:");
+                    ui.text_edit_singleline(&mut app.service_create_path);
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Startup Type:");
+                    egui::ComboBox::from_label("")
+                        .selected_text(&app.service_create_startup_type)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut app.service_create_startup_type,
+                                "Automatic".to_string(),
+                                "Automatic",
+                            );
+                            ui.selectable_value(
+                                &mut app.service_create_startup_type,
+                                "Manual".to_string(),
+                                "Manual",
+                            );
+                            ui.selectable_value(
+                                &mut app.service_create_startup_type,
+                                "Disabled".to_string(),
+                                "Disabled",
+                            );
+                        });
+                });
+
+                ui.separator();
+
+                ui.horizontal(|ui| {
+                    if ui.button("✓ Create").clicked() {
+                        if !app.service_create_name.is_empty() && !app.service_create_path.is_empty() {
+                            let host = app.service_host.clone();
+                            let name = app.service_create_name.clone();
+                            let display_name = if app.service_create_display_name.is_empty() {
+                                app.service_create_name.clone()
+                            } else {
+                                app.service_create_display_name.clone()
+                            };
+                            let path = app.service_create_path.clone();
+
+                            app.service_status_message = format!("Creating service: {}", name);
+
+                            // Spawn async task for service creation
+                            let _rx = spawn_service_create_task(host, name, display_name, path);
+
+                            app.service_create_open = false;
+                            app.service_create_name.clear();
+                            app.service_create_display_name.clear();
+                            app.service_create_path.clear();
+                            app.service_create_startup_type = "Automatic".to_string();
+                        } else {
+                            app.service_status_message = "Service Name and Path are required".to_string();
+                        }
+                    }
+
+                    if ui.button("✗ Cancel").clicked() {
+                        app.service_create_open = false;
+                        app.service_create_name.clear();
+                        app.service_create_display_name.clear();
+                        app.service_create_path.clear();
+                        app.service_create_startup_type = "Automatic".to_string();
+                    }
+                });
+            });
+    }
 }
 
 fn show_registry_edit_dialog(ctx: &egui::Context, app: &mut AnalyzerApp) {
