@@ -2,6 +2,7 @@ pub mod auth;
 pub mod cli;
 pub mod cli_handlers;
 pub mod cli_response;
+pub mod config;
 pub mod executor;
 pub mod error;
 pub mod pipe;
