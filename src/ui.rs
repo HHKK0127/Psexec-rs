@@ -43,10 +43,13 @@ pub struct AnalyzerApp {
     // Async task state
     pub service_list_loading: bool,
     pub service_list_result: Option<Result<ServiceListResponse, String>>,
+    pub service_list_rx: Option<mpsc::Receiver<Result<ServiceListResponse, String>>>,
     pub registry_list_loading: bool,
     pub registry_list_result: Option<Result<RegistryListResponse, String>>,
+    pub registry_list_rx: Option<mpsc::Receiver<Result<RegistryListResponse, String>>>,
     pub script_exec_loading: bool,
     pub script_exec_result: Option<Result<ScriptExecResult, String>>,
+    pub script_exec_rx: Option<mpsc::Receiver<Result<ScriptExecResult, String>>>,
     pub service_op_result: Option<Result<OperationResult, String>>,
     pub registry_op_result: Option<Result<OperationResult, String>>,
 
@@ -99,10 +102,13 @@ impl Default for AnalyzerApp {
             script_status_message: "Ready to execute script".to_string(),
             service_list_loading: false,
             service_list_result: None,
+            service_list_rx: None,
             registry_list_loading: false,
             registry_list_result: None,
+            registry_list_rx: None,
             script_exec_loading: false,
             script_exec_result: None,
+            script_exec_rx: None,
             service_op_result: None,
             registry_op_result: None,
             output_receiver: None,
@@ -179,6 +185,107 @@ impl eframe::App for AnalyzerApp {
         } else if self.is_executing {
             // If receiver is None and we're supposed to be executing, stop
             self.is_executing = false;
+        }
+
+        // Check for service list async results
+        if let Some(ref rx) = self.service_list_rx {
+            match rx.try_recv() {
+                Ok(result) => {
+                    self.service_list_loading = false;
+                    self.service_list_result = Some(result.clone());
+
+                    match result {
+                        Ok(response) => {
+                            // Convert to display format
+                            self.services = response.services
+                                .iter()
+                                .map(|s| (s.name.clone(), s.state.to_string()))
+                                .collect();
+                            self.service_status_message = format!("✓ Loaded {} service(s)", response.count);
+                        }
+                        Err(e) => {
+                            self.service_status_message = format!("❌ Error: {}", e);
+                        }
+                    }
+                    self.service_list_rx = None;
+                }
+                Err(mpsc::TryRecvError::Empty) => {
+                    // Still loading, request repaint
+                    ctx.request_repaint();
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    // Channel closed, stop loading
+                    self.service_list_loading = false;
+                    self.service_list_rx = None;
+                }
+            }
+        }
+
+        // Check for registry list async results
+        if let Some(ref rx) = self.registry_list_rx {
+            match rx.try_recv() {
+                Ok(result) => {
+                    self.registry_list_loading = false;
+                    self.registry_list_result = Some(result.clone());
+
+                    match result {
+                        Ok(response) => {
+                            // Convert to display format
+                            self.registry_entries = response.entries
+                                .iter()
+                                .map(|e| (e.name.clone(), e.value_type.clone(), e.data.clone()))
+                                .collect();
+                            self.registry_status_message = format!("✓ Loaded {} entries", response.count);
+                        }
+                        Err(e) => {
+                            self.registry_status_message = format!("❌ Error: {}", e);
+                        }
+                    }
+                    self.registry_list_rx = None;
+                }
+                Err(mpsc::TryRecvError::Empty) => {
+                    // Still loading, request repaint
+                    ctx.request_repaint();
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    // Channel closed, stop loading
+                    self.registry_list_loading = false;
+                    self.registry_list_rx = None;
+                }
+            }
+        }
+
+        // Check for script exec async results
+        if let Some(ref rx) = self.script_exec_rx {
+            match rx.try_recv() {
+                Ok(result) => {
+                    self.script_exec_loading = false;
+                    self.script_exec_result = Some(result.clone());
+
+                    match result {
+                        Ok(response) => {
+                            self.script_output = format!(
+                                "Exit Code: {}\n\n[STDOUT]\n{}\n\n[STDERR]\n{}",
+                                response.exit_code, response.stdout, response.stderr
+                            );
+                            self.script_status_message = format!("✓ Execution completed ({}ms)", response.execution_time_ms);
+                        }
+                        Err(e) => {
+                            self.script_status_message = format!("❌ Error: {}", e);
+                        }
+                    }
+                    self.script_exec_rx = None;
+                }
+                Err(mpsc::TryRecvError::Empty) => {
+                    // Still loading, request repaint
+                    ctx.request_repaint();
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    // Channel closed, stop loading
+                    self.script_exec_loading = false;
+                    self.script_exec_rx = None;
+                }
+            }
         }
 
         // Request repaint if still executing
@@ -566,9 +673,8 @@ fn show_service_management(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
             if !host.is_empty() {
                 app.service_status_message = format!("Loading services from {}...", host);
                 app.service_list_loading = true;
-                // Note: In real usage, would store the receiver, but for now we just show status
-                let _rx = spawn_service_list_task(host.clone());
-                // TODO: Store the receiver for result handling in the update loop
+                let rx = spawn_service_list_task(host.clone());
+                app.service_list_rx = Some(rx);
             } else {
                 app.service_status_message = "Please enter a host name".to_string();
             }
