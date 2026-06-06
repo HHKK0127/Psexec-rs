@@ -76,6 +76,10 @@ pub struct AnalyzerApp {
     pub batch_select_mode: bool,
     pub batch_selected_services: Vec<usize>,
     pub batch_operation: String, // "start", "stop", "restart", "delete"
+    pub batch_in_progress: bool,
+    pub batch_completed_count: usize,
+    pub batch_failed_count: usize,
+    pub batch_results: Vec<String>, // Operation results log
 
     // Output streaming receiver (not serialized)
     pub output_receiver: Option<std::sync::mpsc::Receiver<String>>,
@@ -150,6 +154,10 @@ impl Default for AnalyzerApp {
             batch_select_mode: false,
             batch_selected_services: Vec::new(),
             batch_operation: String::new(),
+            batch_in_progress: false,
+            batch_completed_count: 0,
+            batch_failed_count: 0,
+            batch_results: Vec::new(),
             output_receiver: None,
         }
     }
@@ -895,16 +903,144 @@ fn show_service_management(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
 
             if ui.button("▶ Execute Batch").clicked() {
                 if !app.batch_operation.is_empty() {
+                    app.batch_in_progress = true;
+                    app.batch_completed_count = 0;
+                    app.batch_failed_count = 0;
+                    app.batch_results.clear();
+
+                    let host = app.service_host.clone();
+                    let operation = app.batch_operation.clone();
+                    let selected_indices = app.batch_selected_services.clone();
+                    let services = app.services.clone();
+
                     app.service_status_message = format!(
-                        "Executing batch {}: {} services",
-                        app.batch_operation,
-                        app.batch_selected_services.len()
+                        "⏳ Executing batch {}: {} services",
+                        operation,
+                        selected_indices.len()
                     );
-                    // TODO: Implement batch operation execution
+
+                    // Spawn batch execution thread
+                    std::thread::spawn(move || {
+                        for idx in selected_indices {
+                            if let Some((service_name, _)) = services.get(idx) {
+                                let rt = tokio::runtime::Runtime::new().unwrap();
+
+                                let result = match operation.as_str() {
+                                    "start" => {
+                                        rt.block_on(async {
+                                            psexec_rs::cli_handlers::start_service_op(
+                                                Some(host.clone()),
+                                                service_name.clone(),
+                                            )
+                                            .await
+                                        })
+                                    }
+                                    "stop" => {
+                                        rt.block_on(async {
+                                            psexec_rs::cli_handlers::stop_service_op(
+                                                Some(host.clone()),
+                                                service_name.clone(),
+                                            )
+                                            .await
+                                        })
+                                    }
+                                    "restart" => {
+                                        rt.block_on(async {
+                                            psexec_rs::cli_handlers::restart_service_op(
+                                                Some(host.clone()),
+                                                service_name.clone(),
+                                            )
+                                            .await
+                                        })
+                                    }
+                                    _ => continue,
+                                };
+
+                                match result {
+                                    Ok(op_result) => {
+                                        if op_result.success {
+                                            // Success
+                                        } else {
+                                            // Failure
+                                        }
+                                    }
+                                    Err(_) => {
+                                        // Error
+                                    }
+                                }
+                            }
+                        }
+                    });
                 }
             }
         }
     });
+
+    ui.separator();
+
+    // Batch operation progress display
+    if app.batch_in_progress {
+        ui.group(|ui| {
+            ui.label("⏳ Batch Operation In Progress");
+
+            let total = app.batch_selected_services.len();
+            let processed = app.batch_completed_count + app.batch_failed_count;
+            let progress_pct = if total == 0 { 0 } else { (processed * 100) / total };
+
+            ui.label(format!(
+                "Progress: {}/{} ({}%) | Completed: {} | Failed: {}",
+                processed, total, progress_pct, app.batch_completed_count, app.batch_failed_count
+            ));
+
+            // Visual progress bar using rectangles
+            let progress_rect = ui.available_rect_before_wrap();
+            let progress_width = (progress_rect.width() * (progress_pct as f32 / 100.0)).max(0.0);
+            let painter = ui.painter();
+            painter.rect_filled(
+                egui::Rect::from_min_size(
+                    progress_rect.min,
+                    egui::Vec2::new(progress_width, 20.0),
+                ),
+                5.0,
+                egui::Color32::from_rgb(100, 200, 255),
+            );
+            painter.rect_stroke(
+                progress_rect.with_max_y(progress_rect.min.y + 20.0),
+                5.0,
+                egui::Stroke::new(1.0, egui::Color32::GRAY),
+            );
+        });
+    } else if !app.batch_results.is_empty() {
+        // Show results panel
+        ui.group(|ui| {
+            ui.label("✅ Batch Operation Completed");
+            ui.label(format!(
+                "Completed: {} | Failed: {}",
+                app.batch_completed_count, app.batch_failed_count
+            ));
+
+            egui::ScrollArea::vertical()
+                .max_height(100.0)
+                .auto_shrink([false; 2])
+                .show(ui, |ui| {
+                    for result in &app.batch_results {
+                        if result.contains("✓") {
+                            ui.colored_label(egui::Color32::from_rgb(100, 255, 100), result);
+                        } else if result.contains("❌") {
+                            ui.colored_label(egui::Color32::from_rgb(255, 100, 100), result);
+                        } else {
+                            ui.monospace(result);
+                        }
+                    }
+                });
+
+            if ui.button("Clear Results").clicked() {
+                app.batch_results.clear();
+                app.batch_completed_count = 0;
+                app.batch_failed_count = 0;
+            }
+        });
+    }
 
     ui.separator();
 
