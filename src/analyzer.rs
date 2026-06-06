@@ -125,7 +125,7 @@ fn extract_pe_info(pe: &PE) -> PeInfo {
     };
     let (subsystem, entry_point, image_base, timestamp) = match pe.header.optional_header {
         Some(opt) => (
-            match opt.subsystem {
+            match opt.windows_fields.subsystem {
                 1 => "Native (Driver)".to_string(),
                 2 => "Windows GUI".to_string(),
                 3 => "Windows Console (CUI)".to_string(),
@@ -148,9 +148,10 @@ fn extract_pe_info(pe: &PE) -> PeInfo {
             },
             match pe.header.coff_header.time_date_stamp {
                 0 => "Unknown".to_string(),
-                ts => DateTime::<Utc>::from_timestamp(ts as i64, 0)
-                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
-                    .unwrap_or_else(|_| "Invalid timestamp".to_string()),
+                ts => match DateTime::<Utc>::from_timestamp(ts as i64, 0) {
+                    Some(dt) => dt.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
+                    None => "Invalid timestamp".to_string(),
+                },
             },
         ),
         None => (
@@ -182,59 +183,50 @@ fn extract_pe_info(pe: &PE) -> PeInfo {
     }
 }
 
+/// Fixed for goblin v0.8 API: pe.imports is Vec<Import>, not Option<Vec<Import>>
+/// Each Import represents a single symbol imported from a DLL
+/// In goblin v0.8, imports are flattened - each import has dll name and one symbol
 fn extract_imports(pe: &PE) -> Vec<ImportDll> {
-    let mut result = Vec::new();
-    if let Some(imports) = &pe.imports {
-        for imp in imports {
-            let dll_name = imp.dll.to_string();
-            let functions: Vec<String> = imp.symbols.iter().map(|sym| match sym {
-                goblin::pe::import::Symbol::ImportByName(name) => name.to_string(),
-                goblin::pe::import::Symbol::ImportByOrdinal(ord) => format!("Ordinal({})", ord),
-            }).collect();
-            result.push(ImportDll { name: dll_name, functions });
-        }
+    use std::collections::HashMap;
+
+    // Group imports by DLL name
+    let mut dll_map: HashMap<String, Vec<String>> = HashMap::new();
+
+    // goblin v0.8: pe.imports is Vec<Import>, each has dll and symbol name
+    for imp in &pe.imports {
+        let dll_name = imp.dll.to_string();
+        let func_name = imp.name.to_string();
+
+        dll_map.entry(dll_name)
+            .or_insert_with(Vec::new)
+            .push(func_name);
     }
+
+    // Convert HashMap to Vec<ImportDll>
+    let mut result: Vec<ImportDll> = dll_map
+        .into_iter()
+        .map(|(name, functions)| ImportDll { name, functions })
+        .collect();
+
+    result.sort_by(|a, b| a.name.cmp(&b.name));
     result
 }
 
+/// Extract strings from binary data with keyword filtering.
+///
+/// This function extracts ASCII and Unicode (UTF-16LE) strings from PE binaries,
+/// filtering to only return strings that match PAExec-relevant keywords.
+///
+/// **Note**: This filters by hardcoded keywords (psexec, service, process, token, etc.).
+/// Users see only filtered results; the full string count is not displayed.
 fn extract_strings(data: &[u8]) -> (Vec<String>, Vec<String>) {
-    let mut ascii = Vec::new();
-    let mut current = String::new();
-    for &b in data {
-        if b >= 0x20 && b <= 0x7E {
-            current.push(b as char);
-        } else {
-            if current.len() >= 4 {
-                ascii.push(current.clone());
-            }
-            current.clear();
-        }
-    }
-    if current.len() >= 4 {
-        ascii.push(current);
-    }
+    // Extract ASCII strings (0x20-0x7E printable range)
+    let ascii = extract_ascii_strings(data);
 
-    let mut unicode = Vec::new();
-    let mut current_u = String::new();
-    let mut i = 0;
-    while i + 1 < data.len() {
-        let b0 = data[i];
-        let b1 = data[i + 1];
-        if b1 == 0 && b0 >= 0x20 && b0 <= 0x7E {
-            current_u.push(b0 as char);
-            i += 2;
-        } else {
-            if current_u.len() >= 4 {
-                unicode.push(current_u.clone());
-            }
-            current_u.clear();
-            i += 1;
-        }
-    }
-    if current_u.len() >= 4 {
-        unicode.push(current_u);
-    }
+    // Extract Unicode strings (UTF-16LE format)
+    let unicode = extract_unicode_strings(data);
 
+    // Filter by hardcoded keywords
     let keywords = [
         "psexec", "sysinternals", "microsoft", "service", "cmd.exe",
         "powershell", "registry", "wow64", "pipe", "ntdll", "kernel32",
@@ -242,14 +234,16 @@ fn extract_strings(data: &[u8]) -> (Vec<String>, Vec<String>) {
         "shellexecute", "crypt", "lsa", "logon", "scmanager", "namedpipe",
     ];
 
-    let ascii_filtered: Vec<_> = ascii.into_iter()
+    let ascii_filtered: Vec<_> = ascii
+        .into_iter()
         .filter(|s| {
             let lower = s.to_lowercase();
             s.len() >= 6 && keywords.iter().any(|&k| lower.contains(k))
         })
         .collect();
 
-    let unicode_filtered: Vec<_> = unicode.into_iter()
+    let unicode_filtered: Vec<_> = unicode
+        .into_iter()
         .filter(|s| {
             let lower = s.to_lowercase();
             s.len() >= 6 && keywords.iter().any(|&k| lower.contains(k))
@@ -257,4 +251,81 @@ fn extract_strings(data: &[u8]) -> (Vec<String>, Vec<String>) {
         .collect();
 
     (ascii_filtered, unicode_filtered)
+}
+
+/// Extract ASCII strings (0x20-0x7E range) from binary data.
+fn extract_ascii_strings(data: &[u8]) -> Vec<String> {
+    let mut strings = Vec::new();
+    let mut current = String::new();
+
+    for &b in data {
+        if b >= 0x20 && b <= 0x7E {
+            current.push(b as char);
+        } else {
+            if current.len() >= 4 {
+                strings.push(current.clone());
+            }
+            current.clear();
+        }
+    }
+
+    if current.len() >= 4 {
+        strings.push(current);
+    }
+
+    strings
+}
+
+/// Extract Unicode strings (UTF-16LE format) from binary data.
+///
+/// Properly handles UTF-16LE encoded strings by:
+/// 1. Reading pairs of bytes as u16 (little-endian)
+/// 2. Validating characters (excluding surrogates, null terminators)
+/// 3. Always incrementing by 2 bytes (not 1), avoiding overlapping scans
+fn extract_unicode_strings(data: &[u8]) -> Vec<String> {
+    let mut strings = Vec::new();
+    let mut current = String::new();
+    let mut i = 0;
+
+    while i + 1 < data.len() {
+        // Read u16 in little-endian format
+        let u16_char = u16::from_le_bytes([data[i], data[i + 1]]);
+
+        // Check if this is a valid UTF-16 code point
+        // Exclude: null terminators (0x0000), surrogates (0xD800-0xDFFF)
+        if u16_char == 0 {
+            // Null terminator: end of string
+            if current.len() >= 4 {
+                strings.push(current.clone());
+            }
+            current.clear();
+        } else if u16_char >= 0xD800 && u16_char <= 0xDFFF {
+            // Surrogate pair (not handled in this simple version)
+            // End current string and skip
+            if current.len() >= 4 {
+                strings.push(current.clone());
+            }
+            current.clear();
+        } else if let Some(ch) = char::from_u32(u16_char as u32) {
+            // Valid Unicode character
+            if ch.is_ascii_graphic() || ch == ' ' || ch == '\t' || ch == '\n' {
+                current.push(ch);
+            } else {
+                // Non-printable: end string
+                if current.len() >= 4 {
+                    strings.push(current.clone());
+                }
+                current.clear();
+            }
+        }
+
+        i += 2; // Always increment by 2 for UTF-16
+    }
+
+    // Flush any remaining string
+    if current.len() >= 4 {
+        strings.push(current);
+    }
+
+    strings
 }

@@ -73,7 +73,21 @@ unsafe fn query_value(buffer: &[u8], key: &str) -> String {
         &mut len,
     ).as_bool() && len > 0
     {
+        // SAFETY: Check that ptr is not null before dereferencing
+        if ptr.is_null() {
+            return String::new();
+        }
+
+        // SAFETY: VerQueryValueW returns byte count; convert to u16 count
         let u16_count = (len as usize) / std::mem::size_of::<u16>();
+
+        // SAFETY: Ensure we have at least 1 u16 element
+        if u16_count == 0 {
+            return String::new();
+        }
+
+        // SAFETY: ptr comes from VerQueryValueW and is guaranteed to be within buffer
+        // if successful. We've validated it's not null and has at least 1 element.
         let slice = std::slice::from_raw_parts(ptr as *const u16, u16_count);
         String::from_utf16_lossy(slice).trim_end_matches('\0').to_string()
     } else {
@@ -89,8 +103,8 @@ pub fn verify_signature(path: &Path) -> SignatureInfo {
         let file_info = WINTRUST_FILE_INFO {
             cbStruct: std::mem::size_of::<WINTRUST_FILE_INFO>() as u32,
             pcwszFilePath: PCWSTR(wide.as_ptr()),
-            hFile: HANDLE(std::ptr::null_mut()),
-            pgKnownSubject: std::ptr::null(),
+            hFile: HANDLE(0),
+            pgKnownSubject: std::ptr::null_mut(),
         };
 
         let mut data = WINTRUST_DATA {
@@ -104,30 +118,30 @@ pub fn verify_signature(path: &Path) -> SignatureInfo {
                 pFile: &file_info as *const _ as *mut _,
             },
             dwStateAction: WTD_STATEACTION_VERIFY,
-            hWVTStateData: HANDLE(std::ptr::null_mut()),
-            pwszURLReference: PCWSTR(std::ptr::null()),
-            dwProvFlags: 0,
-            dwUIContext: 0,
+            hWVTStateData: HANDLE(0),
+            pwszURLReference: windows::core::PWSTR(std::ptr::null_mut()),
+            dwProvFlags: windows::Win32::Security::WinTrust::WINTRUST_DATA_PROVIDER_FLAGS(0),
+            dwUIContext: windows::Win32::Security::WinTrust::WINTRUST_DATA_UICONTEXT(0),
             pSignatureSettings: std::ptr::null_mut(),
         };
 
-        let action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+        let mut action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
         let hr = WinVerifyTrust(
-            HANDLE(std::ptr::null_mut()),
-            &action,
+            windows::Win32::Foundation::HWND(0),
+            &mut action as *mut _,
             &mut data as *mut _ as *mut _,
         );
 
-        if hr.is_ok() {
+        if hr == 0 {
             sig.status = "Valid".to_string();
         } else {
-            sig.status = format!("Invalid / Untrusted (HRESULT: 0x{:08X})", hr.0);
+            sig.status = format!("Invalid / Untrusted (Error: {})", hr);
         }
 
         data.dwStateAction = WTD_STATEACTION_CLOSE;
         let _ = WinVerifyTrust(
-            HANDLE(std::ptr::null_mut()),
-            &action,
+            windows::Win32::Foundation::HWND(0),
+            &mut action as *mut _,
             &mut data as *mut _ as *mut _,
         );
     }

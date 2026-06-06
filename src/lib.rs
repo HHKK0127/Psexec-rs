@@ -1,0 +1,21 @@
+pub mod auth;
+pub mod cli;
+pub mod cli_handlers;
+pub mod executor;
+pub mod error;
+pub mod pipe;
+pub mod file_transfer;
+pub mod output;
+pub mod service;
+pub mod registry;
+pub mod script;
+
+pub use auth::{AuthContext, AuthMethod};
+pub use executor::{ExecutionContext, ExecutionMethod, ExecutionResult};
+pub use error::{PaExecError, RetryPolicy, Result};
+pub use pipe::InteractiveSession;
+pub use file_transfer::{FileTransferContext, TransferResult, TransferDirection, TransferMethod, FileMetadata};
+pub use output::{OutputFetchContext, OutputResult, OutputMethod, OutputFetcher, fetch_output};
+pub use service::{ServiceContext, ServiceInfo, ServiceState, ServiceStartupType, ServiceResult};
+pub use registry::{RegistryContext, RegistryHive, RegistryValue, RegistryValueType, RegistryEntry};
+pub use script::{ScriptContext, ScriptExecution, ScriptResult, ScriptType, ExecutionPolicy};
