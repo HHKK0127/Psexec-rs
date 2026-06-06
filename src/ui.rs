@@ -175,6 +175,63 @@ fn spawn_script_exec_task(
     rx
 }
 
+fn spawn_service_start_task(
+    host: String,
+    service_name: String,
+) -> mpsc::Receiver<Result<OperationResult, String>> {
+    let (tx, rx) = mpsc::channel();
+
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(async {
+            psexec_rs::cli_handlers::start_service_op(Some(host), service_name)
+                .await
+                .map_err(|e| e.to_string())
+        });
+        let _ = tx.send(result);
+    });
+
+    rx
+}
+
+fn spawn_service_stop_task(
+    host: String,
+    service_name: String,
+) -> mpsc::Receiver<Result<OperationResult, String>> {
+    let (tx, rx) = mpsc::channel();
+
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(async {
+            psexec_rs::cli_handlers::stop_service_op(Some(host), service_name)
+                .await
+                .map_err(|e| e.to_string())
+        });
+        let _ = tx.send(result);
+    });
+
+    rx
+}
+
+fn spawn_service_restart_task(
+    host: String,
+    service_name: String,
+) -> mpsc::Receiver<Result<OperationResult, String>> {
+    let (tx, rx) = mpsc::channel();
+
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(async {
+            psexec_rs::cli_handlers::restart_service_op(Some(host), service_name)
+                .await
+                .map_err(|e| e.to_string())
+        });
+        let _ = tx.send(result);
+    });
+
+    rx
+}
+
 impl eframe::App for AnalyzerApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Check for output from background thread
@@ -730,22 +787,36 @@ fn show_service_management(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
         ui.horizontal(|ui| {
             if ui.button("▶ Start").clicked() {
                 if let Some((name, _)) = app.services.get(app.selected_service.unwrap()) {
-                    app.service_status_message = format!("✓ Starting service: {}", name);
+                    let host = app.service_host.clone();
+                    let service_name = name.clone();
+                    app.service_status_message = format!("Starting service: {}", name);
+                    // Spawn async task for service start
+                    let _rx = spawn_service_start_task(host, service_name);
+                    // Note: For now, result is fire-and-forget; could enhance with result tracking
                 }
             }
             if ui.button("⏹ Stop").clicked() {
                 if let Some((name, _)) = app.services.get(app.selected_service.unwrap()) {
-                    app.service_status_message = format!("✓ Stopping service: {}", name);
+                    let host = app.service_host.clone();
+                    let service_name = name.clone();
+                    app.service_status_message = format!("Stopping service: {}", name);
+                    // Spawn async task for service stop
+                    let _rx = spawn_service_stop_task(host, service_name);
                 }
             }
             if ui.button("↻ Restart").clicked() {
                 if let Some((name, _)) = app.services.get(app.selected_service.unwrap()) {
-                    app.service_status_message = format!("✓ Restarting service: {}", name);
+                    let host = app.service_host.clone();
+                    let service_name = name.clone();
+                    app.service_status_message = format!("Restarting service: {}", name);
+                    // Spawn async task for service restart
+                    let _rx = spawn_service_restart_task(host, service_name);
                 }
             }
             if ui.button("🗑 Delete").clicked() {
                 if let Some((name, _)) = app.services.get(app.selected_service.unwrap()) {
-                    app.service_status_message = format!("✓ Deleting service: {}", name);
+                    app.service_status_message = format!("Deleting service: {}", name);
+                    // Delete operation would require additional handler
                 }
             }
         });
@@ -777,28 +848,20 @@ fn show_registry_browser(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
     ui.horizontal(|ui| {
         ui.label("Path:");
         ui.text_edit_singleline(&mut app.registry_path);
-        if ui.button("🔍 Browse").clicked() {
-            let path = app.registry_path.clone();
-            app.registry_status_message = format!("Loading: {}", path);
 
-            // サンプルレジストリエントリを生成
-            if path.contains("HKEY_LOCAL_MACHINE") {
-                app.registry_entries = vec![
-                    ("CurrentVersion".to_string(), "REG_SZ".to_string(), "6.1".to_string()),
-                    ("InstallDate".to_string(), "REG_DWORD".to_string(), "1704067200".to_string()),
-                    ("SystemRoot".to_string(), "REG_SZ".to_string(), "C:\\Windows".to_string()),
-                    ("PathName".to_string(), "REG_SZ".to_string(), "C:\\Windows\\System32".to_string()),
-                ];
-                app.registry_status_message = format!("Loaded {} entries from {}", app.registry_entries.len(), path);
-            } else if path.contains("HKEY_CURRENT_USER") {
-                app.registry_entries = vec![
-                    ("Username".to_string(), "REG_SZ".to_string(), "Administrator".to_string()),
-                    ("Locale".to_string(), "REG_SZ".to_string(), "en-US".to_string()),
-                ];
-                app.registry_status_message = format!("Loaded {} entries from {}", app.registry_entries.len(), path);
+        if app.registry_list_loading {
+            ui.label("⏳ Loading...");
+        } else if ui.button("🔍 Browse").clicked() {
+            let host = app.registry_host.clone();
+            let path = app.registry_path.clone();
+
+            if !host.is_empty() && !path.is_empty() {
+                app.registry_status_message = format!("Loading: {}", path);
+                app.registry_list_loading = true;
+                let rx = spawn_registry_list_task(host.clone(), path.clone());
+                app.registry_list_rx = Some(rx);
             } else {
-                app.registry_entries.clear();
-                app.registry_status_message = "No entries found or invalid path".to_string();
+                app.registry_status_message = "Please enter both host and path".to_string();
             }
         }
     });
@@ -812,9 +875,22 @@ fn show_registry_browser(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
         .max_height(available_height * 0.5)
         .auto_shrink([false; 2])
         .show(ui, |ui| {
+            if app.registry_entries.is_empty() && !app.registry_list_loading {
+                ui.colored_label(egui::Color32::GRAY, "[No entries loaded]");
+            }
+
             for (idx, (name, value_type, _)) in app.registry_entries.iter().enumerate() {
                 let is_selected = app.selected_registry_entry == Some(idx);
-                let label = egui::RichText::new(format!("📄 {} [{}]", name, value_type));
+
+                let type_color = match value_type.as_str() {
+                    "REG_SZ" => egui::Color32::BLUE,
+                    "REG_DWORD" => egui::Color32::GREEN,
+                    "REG_BINARY" => egui::Color32::YELLOW,
+                    _ => egui::Color32::GRAY,
+                };
+
+                let label = egui::RichText::new(format!("📄 {} [{}]", name, value_type))
+                    .color(type_color);
                 if ui.selectable_label(is_selected, label).clicked() {
                     app.selected_registry_entry = Some(idx);
                 }
@@ -828,6 +904,7 @@ fn show_registry_browser(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
         if let Some((name, value_type, data)) = app.registry_entries.get(idx) {
             ui.group(|ui| {
                 ui.vertical(|ui| {
+                    ui.label(egui::RichText::new("Entry Details").strong());
                     ui.label(format!("Name: {}", name));
                     ui.label(format!("Type: {}", value_type));
                     ui.label(format!("Data: {}", data));
@@ -839,23 +916,32 @@ fn show_registry_browser(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
     ui.separator();
 
     // Action buttons
-    if app.selected_registry_entry.is_some() {
+    if app.selected_registry_entry.is_some() && !app.registry_list_loading {
         ui.horizontal(|ui| {
             if ui.button("✏ Edit").clicked() {
                 if let Some((name, _, _)) = app.registry_entries.get(app.selected_registry_entry.unwrap()) {
-                    app.registry_status_message = format!("Editing: {}", name);
+                    app.registry_status_message = format!("✓ Editing: {}", name);
                 }
             }
             if ui.button("🗑 Delete").clicked() {
                 if let Some((name, _, _)) = app.registry_entries.get(app.selected_registry_entry.unwrap()) {
-                    app.registry_status_message = format!("Deleting: {}", name);
+                    app.registry_status_message = format!("✓ Deleting: {}", name);
                 }
             }
         });
     }
 
     ui.separator();
-    ui.colored_label(egui::Color32::LIGHT_BLUE, &app.registry_status_message);
+
+    let status_color = if app.registry_status_message.contains("Error") || app.registry_status_message.contains("error") {
+        egui::Color32::from_rgb(255, 100, 100)
+    } else if app.registry_status_message.contains("✓") {
+        egui::Color32::from_rgb(100, 255, 100)
+    } else {
+        egui::Color32::LIGHT_BLUE
+    };
+
+    ui.colored_label(status_color, &app.registry_status_message);
 }
 
 fn show_script_executor(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
@@ -885,7 +971,7 @@ fn show_script_executor(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
         }
     });
 
-    ui.label(format!("Selected: {}", app.script_type));
+    ui.label(egui::RichText::new(format!("Selected: {}", app.script_type)).strong());
     ui.separator();
 
     // Script editor
@@ -909,21 +995,31 @@ fn show_script_executor(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
     ui.separator();
 
     // Execute button
-    if ui.button("▶ Execute Script").clicked() {
+    if app.script_exec_loading {
+        ui.label("⏳ Executing...");
+    } else if ui.button("▶ Execute Script").clicked() {
         if app.script_content.is_empty() {
-            app.script_status_message = "Error: Script content is empty".to_string();
+            app.script_status_message = "❌ Error: Script content is empty".to_string();
+        } else if app.script_host.is_empty() {
+            app.script_status_message = "❌ Error: Host is required".to_string();
         } else {
             app.script_status_message = format!(
                 "Executing {} script on {}...",
                 app.script_type, app.script_host
             );
+            app.script_exec_loading = true;
 
-            // サンプル出力を生成
-            app.script_output = format!(
-                "Script Type: {}\nHost: {}\nArguments: {}\n\nOutput:\nScript executed successfully\nReturn Code: 0",
-                app.script_type, app.script_host,
-                if app.script_arguments.is_empty() { "(none)".to_string() } else { app.script_arguments.clone() }
-            );
+            let host = app.script_host.clone();
+            let script_type = app.script_type.clone();
+            let content = app.script_content.clone();
+            let args = if app.script_arguments.is_empty() {
+                None
+            } else {
+                Some(app.script_arguments.clone())
+            };
+
+            let rx = spawn_script_exec_task(host, script_type, content, args);
+            app.script_exec_rx = Some(rx);
         }
     }
 
@@ -934,6 +1030,7 @@ fn show_script_executor(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
     egui::ScrollArea::vertical()
         .max_height(available_height * 0.35)
         .auto_shrink([false; 2])
+        .stick_to_bottom(true)
         .show(ui, |ui| {
             if app.script_output.is_empty() {
                 ui.colored_label(egui::Color32::GRAY, "[No output yet]");
@@ -943,6 +1040,15 @@ fn show_script_executor(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
         });
 
     ui.separator();
-    ui.colored_label(egui::Color32::LIGHT_BLUE, &app.script_status_message);
+
+    let status_color = if app.script_status_message.contains("Error") || app.script_status_message.contains("error") {
+        egui::Color32::from_rgb(255, 100, 100)
+    } else if app.script_status_message.contains("✓") || app.script_status_message.contains("Executing") {
+        egui::Color32::from_rgb(100, 200, 255)
+    } else {
+        egui::Color32::LIGHT_BLUE
+    };
+
+    ui.colored_label(status_color, &app.script_status_message);
 }
 
