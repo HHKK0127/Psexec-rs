@@ -3,6 +3,10 @@
 use crate::cli::{ServiceCommands, RegistryCommands};
 use crate::service::ServiceContext;
 use crate::error::Result;
+use crate::cli_response::{
+    ServiceInfo as CliServiceInfo, ServiceState as CliServiceState, ServiceListResponse,
+    RegistryEntryInfo, RegistryListResponse, ScriptExecResult, OperationResult,
+};
 
 /// Handle exec command
 pub async fn handle_exec(
@@ -433,6 +437,291 @@ pub async fn handle_shell_command(
 
     println!("[*] Interactive shell not yet implemented");
     Ok(())
+}
+
+// ============================================================================
+// GUI-oriented response functions (return structured types)
+// ============================================================================
+
+/// Get service list for GUI integration
+pub async fn get_service_list(
+    host: Option<String>,
+    filter: Option<String>,
+    running_only: bool,
+) -> Result<ServiceListResponse> {
+    let target_host = host.unwrap_or_else(|| "localhost".to_string());
+    let ctx = ServiceContext::new(&target_host);
+
+    match crate::service::list_services(&ctx).await {
+        Ok(services) => {
+            let mut filtered = services
+                .into_iter()
+                .map(|s| CliServiceInfo {
+                    name: s.name.clone(),
+                    display_name: s.display_name.clone(),
+                    state: map_service_state(&s.state),
+                    path: s.path.clone(),
+                })
+                .collect::<Vec<_>>();
+
+            // Apply filter
+            if let Some(f) = &filter {
+                filtered.retain(|s| {
+                    s.name.to_lowercase().contains(&f.to_lowercase())
+                        || s.display_name.to_lowercase().contains(&f.to_lowercase())
+                });
+            }
+
+            // Filter running only
+            if running_only {
+                filtered.retain(|s| s.state == CliServiceState::Running);
+            }
+
+            let count = filtered.len();
+            Ok(ServiceListResponse {
+                services: filtered,
+                count,
+            })
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Convert Phase 3 ServiceState to CLI response ServiceState
+fn map_service_state(state: &crate::service::ServiceState) -> CliServiceState {
+    match state {
+        crate::service::ServiceState::Running => CliServiceState::Running,
+        crate::service::ServiceState::Stopped => CliServiceState::Stopped,
+        crate::service::ServiceState::Paused => CliServiceState::Paused,
+        _ => CliServiceState::Other,
+    }
+}
+
+/// Start a service (for GUI)
+pub async fn start_service_op(
+    host: Option<String>,
+    name: String,
+) -> Result<OperationResult> {
+    let target_host = host.unwrap_or_else(|| "localhost".to_string());
+    let ctx = ServiceContext::new(&target_host);
+
+    match crate::service::start_service(&ctx, &name).await {
+        Ok(result) => {
+            let op_result = if result.success {
+                OperationResult::success(format!("Service '{}' started successfully", name))
+            } else {
+                OperationResult::error(
+                    result
+                        .error_message
+                        .unwrap_or_else(|| "Unknown error".to_string()),
+                )
+            };
+            Ok(op_result)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Stop a service (for GUI)
+pub async fn stop_service_op(
+    host: Option<String>,
+    name: String,
+) -> Result<OperationResult> {
+    let target_host = host.unwrap_or_else(|| "localhost".to_string());
+    let ctx = ServiceContext::new(&target_host);
+
+    match crate::service::stop_service(&ctx, &name).await {
+        Ok(result) => {
+            let op_result = if result.success {
+                OperationResult::success(format!("Service '{}' stopped successfully", name))
+            } else {
+                OperationResult::error(
+                    result
+                        .error_message
+                        .unwrap_or_else(|| "Unknown error".to_string()),
+                )
+            };
+            Ok(op_result)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Restart a service (for GUI)
+pub async fn restart_service_op(
+    host: Option<String>,
+    name: String,
+) -> Result<OperationResult> {
+    let target_host = host.unwrap_or_else(|| "localhost".to_string());
+    let ctx = ServiceContext::new(&target_host);
+
+    match crate::service::restart_service(&ctx, &name).await {
+        Ok(result) => {
+            let op_result = if result.success {
+                OperationResult::success(format!("Service '{}' restarted successfully", name))
+            } else {
+                OperationResult::error(
+                    result
+                        .error_message
+                        .unwrap_or_else(|| "Unknown error".to_string()),
+                )
+            };
+            Ok(op_result)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Get registry entries (for GUI)
+pub async fn get_registry_entries(
+    host: Option<String>,
+    path: String,
+) -> Result<RegistryListResponse> {
+    let target_host = host.unwrap_or_else(|| "localhost".to_string());
+    let ctx = crate::registry::RegistryContext::new(
+        &target_host,
+        crate::registry::RegistryHive::HKEY_LOCAL_MACHINE,
+    );
+
+    match crate::registry::enumerate_registry_key(&ctx, &path).await {
+        Ok(reg_key) => {
+            let entries = reg_key
+                .values
+                .into_iter()
+                .map(|(name, value_type)| RegistryEntryInfo {
+                    name,
+                    value_type: format!("{:?}", value_type),
+                    data: String::new(), // Will be loaded separately if needed
+                })
+                .collect::<Vec<_>>();
+
+            let count = entries.len();
+            Ok(RegistryListResponse {
+                path,
+                entries,
+                count,
+            })
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Write registry value (for GUI)
+pub async fn write_registry_op(
+    host: Option<String>,
+    key: String,
+    value: String,
+    data: String,
+    r#type: String,
+) -> Result<OperationResult> {
+    let target_host = host.unwrap_or_else(|| "localhost".to_string());
+    let ctx = crate::registry::RegistryContext::new(
+        &target_host,
+        crate::registry::RegistryHive::HKEY_LOCAL_MACHINE,
+    );
+
+    let registry_value = match r#type.to_uppercase().as_str() {
+        "REG_SZ" | "REG_EXPAND_SZ" => crate::registry::RegistryValue::String(data.clone()),
+        "REG_DWORD" => match data.parse::<u32>() {
+            Ok(num) => crate::registry::RegistryValue::Dword(num),
+            Err(_) => {
+                return Ok(OperationResult::error(format!(
+                    "Invalid DWORD value: {}",
+                    data
+                )))
+            }
+        },
+        "REG_QWORD" => match data.parse::<u64>() {
+            Ok(num) => crate::registry::RegistryValue::Qword(num),
+            Err(_) => {
+                return Ok(OperationResult::error(format!(
+                    "Invalid QWORD value: {}",
+                    data
+                )))
+            }
+        },
+        _ => crate::registry::RegistryValue::String(data.clone()),
+    };
+
+    match crate::registry::write_registry_value(&ctx, &key, &value, registry_value).await {
+        Ok(_) => {
+            Ok(OperationResult::success(format!(
+                "Registry value '{}\\{}' written successfully",
+                key, value
+            )))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Delete registry value (for GUI)
+pub async fn delete_registry_op(
+    host: Option<String>,
+    key: String,
+    value: String,
+) -> Result<OperationResult> {
+    let target_host = host.unwrap_or_else(|| "localhost".to_string());
+    let ctx = crate::registry::RegistryContext::new(
+        &target_host,
+        crate::registry::RegistryHive::HKEY_LOCAL_MACHINE,
+    );
+
+    match crate::registry::delete_registry_value(&ctx, &key, &value).await {
+        Ok(_) => {
+            Ok(OperationResult::success(format!(
+                "Registry value '{}\\{}' deleted successfully",
+                key, value
+            )))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Execute script (for GUI)
+pub async fn execute_script_op(
+    host: Option<String>,
+    script_type: String,
+    content: String,
+    arguments: Option<String>,
+) -> Result<ScriptExecResult> {
+    let target_host = host.unwrap_or_else(|| "localhost".to_string());
+
+    // Parse script type
+    let parsed_type = match script_type.to_lowercase().as_str() {
+        "ps" | "powershell" => crate::script::ScriptType::PowerShell,
+        "vbs" | "vbscript" => crate::script::ScriptType::VBScript,
+        "batch" | "bat" => crate::script::ScriptType::Batch,
+        "js" | "javascript" => crate::script::ScriptType::JavaScript,
+        _ => {
+            return Err(crate::error::PaExecError::ExecutionFailed(
+                format!("Unknown script type: {}", script_type),
+            )
+            .into());
+        }
+    };
+
+    let ctx = crate::script::ScriptContext::new(parsed_type, &target_host);
+    let mut script = crate::script::ScriptExecution::new(&content);
+
+    // Add arguments if provided
+    if let Some(arg_string) = arguments {
+        script = script.with_arguments(
+            arg_string
+                .split_whitespace()
+                .map(|s| s.to_string())
+                .collect(),
+        );
+    }
+
+    match crate::script::execute_script(&ctx, &script).await {
+        Ok(result) => Ok(ScriptExecResult {
+            exit_code: result.exit_code,
+            stdout: result.stdout.clone(),
+            stderr: result.stderr.clone(),
+            execution_time_ms: result.execution_time_ms,
+        }),
+        Err(e) => Err(e),
+    }
 }
 
 #[cfg(test)]

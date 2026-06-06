@@ -1,0 +1,2 @@
+<Result<HANDLE, Error> as TypeKind>::TypeKind == CopyType
+windows_core::param::IntoParam<HANDLE, windows_core::r#type::CopyType>

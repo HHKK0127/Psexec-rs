@@ -1,0 +1,2 @@
+<Option<*const u16> as TypeKind>::TypeKind == CopyType
+windows_core::param::IntoParam<PCWSTR, windows_core::r#type::CopyType>

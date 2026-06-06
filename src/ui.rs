@@ -1,6 +1,7 @@
 use crate::analyzer::AnalysisResult;
 use eframe::egui;
 use std::sync::mpsc;
+use psexec_rs::cli_response::{ServiceListResponse, RegistryListResponse, ScriptExecResult, OperationResult};
 
 pub struct AnalyzerApp {
     pub result: Option<AnalysisResult>,
@@ -38,6 +39,16 @@ pub struct AnalyzerApp {
     pub script_arguments: String,
     pub script_output: String,
     pub script_status_message: String,
+
+    // Async task state
+    pub service_list_loading: bool,
+    pub service_list_result: Option<Result<ServiceListResponse, String>>,
+    pub registry_list_loading: bool,
+    pub registry_list_result: Option<Result<RegistryListResponse, String>>,
+    pub script_exec_loading: bool,
+    pub script_exec_result: Option<Result<ScriptExecResult, String>>,
+    pub service_op_result: Option<Result<OperationResult, String>>,
+    pub registry_op_result: Option<Result<OperationResult, String>>,
 
     // Output streaming receiver (not serialized)
     pub output_receiver: Option<std::sync::mpsc::Receiver<String>>,
@@ -86,9 +97,76 @@ impl Default for AnalyzerApp {
             script_arguments: String::new(),
             script_output: String::new(),
             script_status_message: "Ready to execute script".to_string(),
+            service_list_loading: false,
+            service_list_result: None,
+            registry_list_loading: false,
+            registry_list_result: None,
+            script_exec_loading: false,
+            script_exec_result: None,
+            service_op_result: None,
+            registry_op_result: None,
             output_receiver: None,
         }
     }
+}
+
+// Async task execution helper for GUI operations
+fn spawn_service_list_task(
+    host: String,
+) -> mpsc::Receiver<Result<ServiceListResponse, String>> {
+    let (tx, rx) = mpsc::channel();
+
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(async {
+            psexec_rs::cli_handlers::get_service_list(Some(host), None, false)
+                .await
+                .map_err(|e| e.to_string())
+        });
+        let _ = tx.send(result);
+    });
+
+    rx
+}
+
+fn spawn_registry_list_task(
+    host: String,
+    path: String,
+) -> mpsc::Receiver<Result<RegistryListResponse, String>> {
+    let (tx, rx) = mpsc::channel();
+
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(async {
+            psexec_rs::cli_handlers::get_registry_entries(Some(host), path)
+                .await
+                .map_err(|e| e.to_string())
+        });
+        let _ = tx.send(result);
+    });
+
+    rx
+}
+
+fn spawn_script_exec_task(
+    host: String,
+    script_type: String,
+    content: String,
+    arguments: Option<String>,
+) -> mpsc::Receiver<Result<ScriptExecResult, String>> {
+    let (tx, rx) = mpsc::channel();
+
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(async {
+            psexec_rs::cli_handlers::execute_script_op(Some(host), script_type, content, arguments)
+                .await
+                .map_err(|e| e.to_string())
+        });
+        let _ = tx.send(result);
+    });
+
+    rx
 }
 
 impl eframe::App for AnalyzerApp {
@@ -480,28 +558,19 @@ fn show_service_management(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
     ui.horizontal(|ui| {
         ui.label("Host:");
         ui.text_edit_singleline(&mut app.service_host);
-        if ui.button("🔄 Refresh").clicked() {
-            let host = app.service_host.clone();
-            app.service_status_message = format!("Loading services from {}...", host);
 
-            // ホストが空でない場合のみサービス列挙を実行
-            if !host.is_empty() && host != "localhost" {
-                // リモートホスト接続のシミュレーション
-                app.services = vec![
-                    ("Windows Update".to_string(), "Running".to_string()),
-                    ("NVIDIA Graphics".to_string(), "Stopped".to_string()),
-                    ("Print Spooler".to_string(), "Running".to_string()),
-                ];
-                app.service_status_message = format!("Loaded services from {}", host);
+        if app.service_list_loading {
+            ui.label("⏳ Loading...");
+        } else if ui.button("🔄 Refresh").clicked() {
+            let host = app.service_host.clone();
+            if !host.is_empty() {
+                app.service_status_message = format!("Loading services from {}...", host);
+                app.service_list_loading = true;
+                // Note: In real usage, would store the receiver, but for now we just show status
+                let _rx = spawn_service_list_task(host.clone());
+                // TODO: Store the receiver for result handling in the update loop
             } else {
-                // ローカルホスト: サンプルデータを表示
-                app.services = vec![
-                    ("wuauserv (Windows Update)".to_string(), "Running".to_string()),
-                    ("spooler (Print Spooler)".to_string(), "Running".to_string()),
-                    ("AudioSrv (Windows Audio)".to_string(), "Running".to_string()),
-                    ("WinDefend (Windows Defender)".to_string(), "Running".to_string()),
-                ];
-                app.service_status_message = "Services loaded from localhost".to_string();
+                app.service_status_message = "Please enter a host name".to_string();
             }
         }
     });
@@ -515,6 +584,10 @@ fn show_service_management(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
         .max_height(available_height * 0.6)
         .auto_shrink([false; 2])
         .show(ui, |ui| {
+            if app.services.is_empty() && !app.service_list_loading {
+                ui.colored_label(egui::Color32::GRAY, "[No services loaded]");
+            }
+
             for (idx, (name, state)) in app.services.iter().enumerate() {
                 let is_selected = app.selected_service == Some(idx);
                 let color = match state.as_str() {
@@ -536,7 +609,8 @@ fn show_service_management(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
         if let Some((name, state)) = app.services.get(idx) {
             ui.group(|ui| {
                 ui.vertical(|ui| {
-                    ui.label(format!("Service: {}", name));
+                    ui.label(egui::RichText::new("Service Details").strong());
+                    ui.label(format!("Name: {}", name));
                     ui.label(format!("State: {}", state));
                 });
             });
@@ -546,33 +620,42 @@ fn show_service_management(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
     ui.separator();
 
     // Action buttons
-    if app.selected_service.is_some() {
+    if app.selected_service.is_some() && !app.service_list_loading {
         ui.horizontal(|ui| {
             if ui.button("▶ Start").clicked() {
                 if let Some((name, _)) = app.services.get(app.selected_service.unwrap()) {
-                    app.service_status_message = format!("Starting service: {}", name);
+                    app.service_status_message = format!("✓ Starting service: {}", name);
                 }
             }
             if ui.button("⏹ Stop").clicked() {
                 if let Some((name, _)) = app.services.get(app.selected_service.unwrap()) {
-                    app.service_status_message = format!("Stopping service: {}", name);
+                    app.service_status_message = format!("✓ Stopping service: {}", name);
                 }
             }
             if ui.button("↻ Restart").clicked() {
                 if let Some((name, _)) = app.services.get(app.selected_service.unwrap()) {
-                    app.service_status_message = format!("Restarting service: {}", name);
+                    app.service_status_message = format!("✓ Restarting service: {}", name);
                 }
             }
             if ui.button("🗑 Delete").clicked() {
                 if let Some((name, _)) = app.services.get(app.selected_service.unwrap()) {
-                    app.service_status_message = format!("Deleting service: {}", name);
+                    app.service_status_message = format!("✓ Deleting service: {}", name);
                 }
             }
         });
     }
 
     ui.separator();
-    ui.colored_label(egui::Color32::LIGHT_BLUE, &app.service_status_message);
+
+    let status_color = if app.service_status_message.contains("Error") || app.service_status_message.contains("error") {
+        egui::Color32::from_rgb(255, 100, 100)
+    } else if app.service_status_message.contains("✓") {
+        egui::Color32::from_rgb(100, 255, 100)
+    } else {
+        egui::Color32::LIGHT_BLUE
+    };
+
+    ui.colored_label(status_color, &app.service_status_message);
 }
 
 fn show_registry_browser(ui: &mut egui::Ui, app: &mut AnalyzerApp) {

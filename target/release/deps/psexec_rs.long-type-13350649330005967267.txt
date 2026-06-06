@@ -1,0 +1,8 @@
+Option<*const u16>: windows_core::param::IntoParam<PCWSTR, windows_core::r#type::CopyType>
+windows_core::imp::com_bindings::ILanguageExceptionErrorInfo
+windows_core::imp::com_bindings::ILanguageExceptionErrorInfo2
+windows_core::param::CanInto<windows_core::imp::com_bindings::ILanguageExceptionErrorInfo>
+windows_core::imp::com_bindings::IRestrictedErrorInfo
+windows_core::imp::com_bindings::IWeakReferenceSource
+windows_core::param::IntoParam<PCWSTR, windows_core::r#type::CopyType>
+windows_core::imp::com_bindings::IPropertyValueStatics

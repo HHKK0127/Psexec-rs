@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod cli;
 pub mod cli_handlers;
+pub mod cli_response;
 pub mod executor;
 pub mod error;
 pub mod pipe;
@@ -11,6 +12,7 @@ pub mod registry;
 pub mod script;
 
 pub use auth::{AuthContext, AuthMethod};
+pub use cli_response::{ServiceInfo as CliServiceInfo, ServiceState as CliServiceState, ServiceListResponse, RegistryEntryInfo, RegistryListResponse, ScriptExecResult, OperationResult, CliResponse};
 pub use executor::{ExecutionContext, ExecutionMethod, ExecutionResult};
 pub use error::{PaExecError, RetryPolicy, Result};
 pub use pipe::InteractiveSession;
