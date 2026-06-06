@@ -43,3 +43,6 @@ features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_System_Memory",
 ]
+
+[build-dependencies]
+winresource = "0.1"

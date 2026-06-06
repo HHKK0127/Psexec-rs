@@ -1,1 +1,0 @@
-windows_core::param::IntoParam<PCWSTR, windows_core::r#type::CopyType>

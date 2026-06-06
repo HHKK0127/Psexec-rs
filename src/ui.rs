@@ -4,6 +4,21 @@ use std::sync::mpsc;
 use psexec_rs::cli_response::{ServiceListResponse, RegistryListResponse, ScriptExecResult, OperationResult};
 use chrono;
 
+/// Helper function to determine status message color
+fn get_status_color(message: &str) -> egui::Color32 {
+    if message.contains("Error") || message.contains("error") || message.contains("❌") || message.contains("Failed") {
+        egui::Color32::from_rgb(255, 100, 100)  // Red
+    } else if message.contains("✓") || message.contains("Success") || message.contains("Loaded") || message.contains("Completed") {
+        egui::Color32::from_rgb(100, 255, 100)  // Green
+    } else if message.contains("Loading") || message.contains("Executing") || message.contains("⏳") {
+        egui::Color32::from_rgb(100, 200, 255)  // Blue
+    } else if message.contains("Warning") {
+        egui::Color32::from_rgb(255, 200, 0)    // Yellow
+    } else {
+        egui::Color32::from_rgb(180, 180, 180)  // Light Gray
+    }
+}
+
 pub struct AnalyzerApp {
     pub result: Option<AnalysisResult>,
     pub selected_tab: Tab,
@@ -83,6 +98,10 @@ pub struct AnalyzerApp {
 
     // Output streaming receiver (not serialized)
     pub output_receiver: Option<std::sync::mpsc::Receiver<String>>,
+
+    // Settings/Font options
+    pub font_size: f32,
+    pub theme_dark: bool,
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -96,6 +115,7 @@ pub enum Tab {
     ServiceManagement,
     Registry,
     Script,
+    Settings,
 }
 
 impl Default for AnalyzerApp {
@@ -159,6 +179,8 @@ impl Default for AnalyzerApp {
             batch_failed_count: 0,
             batch_results: Vec::new(),
             output_receiver: None,
+            font_size: 15.0,
+            theme_dark: true,
         }
     }
 }
@@ -324,167 +346,265 @@ fn spawn_service_create_task(
     rx
 }
 
+impl AnalyzerApp {
+    fn nav_button(
+        &mut self,
+        ui: &mut egui::Ui,
+        label: &str,
+        tab: Tab,
+        active_color: egui::Color32,
+    ) {
+        let is_selected = self.selected_tab == tab;
+        let bg_color = if is_selected {
+            egui::Color32::from_rgb(20, 150, 140)
+        } else {
+            egui::Color32::TRANSPARENT
+        };
+
+        if ui
+            .add(
+                egui::Button::new(
+                    egui::RichText::new(label)
+                        .size(12.0)
+                        .color(if is_selected {
+                            egui::Color32::WHITE
+                        } else {
+                            active_color
+                        }),
+                )
+                .fill(bg_color)
+                .small()
+                .frame(false),
+            )
+            .clicked()
+        {
+            self.selected_tab = tab;
+        }
+    }
+}
+
 impl eframe::App for AnalyzerApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Check for output from background thread
-        if let Some(ref receiver) = self.output_receiver {
-            while let Ok(line) = receiver.try_recv() {
-                self.remote_output.push(line);
-            }
-        } else if self.is_executing {
-            // If receiver is None and we're supposed to be executing, stop
-            self.is_executing = false;
-        }
-
-        // Check for service list async results
+        // Process async results
         if let Some(ref rx) = self.service_list_rx {
-            match rx.try_recv() {
-                Ok(result) => {
-                    self.service_list_loading = false;
-                    self.service_list_result = Some(result.clone());
-
-                    match result {
-                        Ok(response) => {
-                            // Convert to display format
-                            self.services = response.services
-                                .iter()
-                                .map(|s| (s.name.clone(), s.state.to_string()))
-                                .collect();
-                            self.service_status_message = format!("✓ Loaded {} service(s)", response.count);
-                        }
-                        Err(e) => {
-                            self.service_status_message = format!("❌ Error: {}", e);
-                        }
-                    }
-                    self.service_list_rx = None;
-                }
-                Err(mpsc::TryRecvError::Empty) => {
-                    // Still loading, request repaint
-                    ctx.request_repaint();
-                }
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    // Channel closed, stop loading
-                    self.service_list_loading = false;
-                    self.service_list_rx = None;
-                }
+            if let Ok(result) = rx.try_recv() {
+                self.service_list_result = Some(result);
+                self.service_list_loading = false;
             }
         }
 
-        // Check for registry list async results
         if let Some(ref rx) = self.registry_list_rx {
-            match rx.try_recv() {
-                Ok(result) => {
-                    self.registry_list_loading = false;
-                    self.registry_list_result = Some(result.clone());
-
-                    match result {
-                        Ok(response) => {
-                            // Convert to display format
-                            self.registry_entries = response.entries
-                                .iter()
-                                .map(|e| (e.name.clone(), e.value_type.clone(), e.data.clone()))
-                                .collect();
-                            self.registry_status_message = format!("✓ Loaded {} entries", response.count);
-                        }
-                        Err(e) => {
-                            self.registry_status_message = format!("❌ Error: {}", e);
-                        }
-                    }
-                    self.registry_list_rx = None;
-                }
-                Err(mpsc::TryRecvError::Empty) => {
-                    // Still loading, request repaint
-                    ctx.request_repaint();
-                }
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    // Channel closed, stop loading
-                    self.registry_list_loading = false;
-                    self.registry_list_rx = None;
-                }
+            if let Ok(result) = rx.try_recv() {
+                self.registry_list_result = Some(result);
+                self.registry_list_loading = false;
             }
         }
 
-        // Check for script exec async results
         if let Some(ref rx) = self.script_exec_rx {
-            match rx.try_recv() {
-                Ok(result) => {
-                    self.script_exec_loading = false;
-                    self.script_exec_result = Some(result.clone());
-
-                    match result {
-                        Ok(response) => {
-                            self.script_output = format!(
-                                "Exit Code: {}\n\n[STDOUT]\n{}\n\n[STDERR]\n{}",
-                                response.exit_code, response.stdout, response.stderr
-                            );
-                            self.script_status_message = format!("✓ Execution completed ({}ms)", response.execution_time_ms);
-                        }
-                        Err(e) => {
-                            self.script_status_message = format!("❌ Error: {}", e);
-                        }
-                    }
-                    self.script_exec_rx = None;
-                }
-                Err(mpsc::TryRecvError::Empty) => {
-                    // Still loading, request repaint
-                    ctx.request_repaint();
-                }
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    // Channel closed, stop loading
-                    self.script_exec_loading = false;
-                    self.script_exec_rx = None;
-                }
+            if let Ok(result) = rx.try_recv() {
+                self.script_exec_result = Some(result);
+                self.script_exec_loading = false;
             }
         }
 
-        // Request repaint if still executing
-        if self.is_executing {
-            ctx.request_repaint();
-        }
+        // Teal/Cyan theme colors
+        let color_bright_cyan = egui::Color32::from_rgb(6, 182, 212);
+        let color_cyan = egui::Color32::from_rgb(13, 148, 136);
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("PE File Analyzer");
-            ui.horizontal(|ui| {
-                if ui.button("Open File").clicked() {
-                    if let Some(path) = rfd::FileDialog::new().pick_file() {
-                        self.status = format!("Analyzing: {}", path.display());
-                        match crate::analyzer::analyze_file(&path) {
-                            Ok(res) => {
-                                self.result = Some(res);
-                                self.status = "Analysis complete".to_string();
-                            }
-                            Err(e) => {
-                                self.status = format!("Error: {}", e);
-                                self.result = None;
+        // Header
+        egui::TopBottomPanel::top("header").show(ctx, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(8.0);
+                ui.colored_label(
+                    color_bright_cyan,
+                    egui::RichText::new("PAExec-rs")
+                        .size(32.0)
+                        .strong(),
+                );
+                ui.add_space(8.0);
+            });
+        });
+
+        // Bottom status bar
+        egui::TopBottomPanel::bottom("status_bar")
+            .default_height(30.0)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "OPERATION: {} | STATUS: {} | USER: paexec_user",
+                            if self.is_executing {
+                                "Remote Execution"
+                            } else {
+                                "Idle"
+                            },
+                            self.status
+                        ))
+                        .color(egui::Color32::from_rgb(180, 180, 180))
+                        .size(11.0),
+                    );
+                });
+            });
+
+        // Left sidebar navigation
+        egui::SidePanel::left("left_sidebar")
+            .default_width(150.0)
+            .width_range(130.0..=200.0)
+            .show(ctx, |ui| {
+                ui.vertical(|ui| {
+                    ui.add_space(10.0);
+
+                    // PE Analyzer section (if file is loaded)
+                    if self.result.is_some() {
+                        ui.label(
+                            egui::RichText::new("ANALYZER")
+                                .size(13.0)
+                                .strong()
+                                .color(color_bright_cyan),
+                        );
+                        ui.add_space(5.0);
+
+                        self.nav_button(ui, "Overview", Tab::Overview, color_cyan);
+                        self.nav_button(ui, "PE Info", Tab::PeInfo, color_cyan);
+                        self.nav_button(ui, "Imports", Tab::Imports, color_cyan);
+                        self.nav_button(ui, "Strings", Tab::Strings, color_cyan);
+                        self.nav_button(ui, "Signature", Tab::Signature, color_cyan);
+
+                        ui.separator();
+                    }
+
+                    // Remote section
+                    ui.label(
+                        egui::RichText::new("REMOTE")
+                            .size(13.0)
+                            .strong()
+                            .color(color_bright_cyan),
+                    );
+                    ui.add_space(5.0);
+                    self.nav_button(ui, "Remote Exec", Tab::RemoteExecution, color_cyan);
+
+                    ui.separator();
+
+                    // Services section
+                    ui.label(
+                        egui::RichText::new("SERVICES")
+                            .size(13.0)
+                            .strong()
+                            .color(color_bright_cyan),
+                    );
+                    ui.add_space(5.0);
+                    self.nav_button(ui, "Services", Tab::ServiceManagement, color_cyan);
+
+                    ui.separator();
+
+                    // Registry section
+                    ui.label(
+                        egui::RichText::new("REGISTRY")
+                            .size(13.0)
+                            .strong()
+                            .color(color_bright_cyan),
+                    );
+                    ui.add_space(5.0);
+                    self.nav_button(ui, "Registry", Tab::Registry, color_cyan);
+
+                    ui.separator();
+
+                    // Script section
+                    ui.label(
+                        egui::RichText::new("SCRIPT")
+                            .size(13.0)
+                            .strong()
+                            .color(color_bright_cyan),
+                    );
+                    ui.add_space(5.0);
+                    self.nav_button(ui, "Script", Tab::Script, color_cyan);
+
+                    ui.separator();
+
+                    // Settings section
+                    ui.label(
+                        egui::RichText::new("SETTINGS")
+                            .size(13.0)
+                            .strong()
+                            .color(color_bright_cyan),
+                    );
+                    ui.add_space(5.0);
+                    self.nav_button(ui, "Settings", Tab::Settings, color_cyan);
+                });
+            });
+
+        // Right panel - Info/Status
+        egui::SidePanel::right("right_panel")
+            .default_width(220.0)
+            .width_range(180.0..=280.0)
+            .show(ctx, |ui| {
+                ui.vertical(|ui| {
+                    ui.add_space(10.0);
+
+                    ui.label(
+                        egui::RichText::new("Info/Status")
+                            .size(14.0)
+                            .strong()
+                            .color(color_bright_cyan),
+                    );
+                    ui.separator();
+
+                    ui.add_space(5.0);
+
+                    // Open File button
+                    if ui.button("Open File").clicked() {
+                        if let Some(path) = rfd::FileDialog::new().pick_file() {
+                            self.status = format!("Analyzing: {}", path.display());
+                            match crate::analyzer::analyze_file(&path) {
+                                Ok(res) => {
+                                    self.result = Some(res);
+                                    self.status = "Analysis complete".to_string();
+                                }
+                                Err(e) => {
+                                    self.status = format!("Error: {}", e);
+                                    self.result = None;
+                                }
                             }
                         }
                     }
-                }
-                ui.label(&self.status);
+
+                    ui.add_space(5.0);
+
+                    ui.label(
+                        egui::RichText::new("Status & Settings")
+                            .size(12.0)
+                            .strong()
+                            .color(color_bright_cyan),
+                    );
+
+                    ui.horizontal(|ui| {
+                        ui.label("Font:");
+                        ui.add(egui::Slider::new(&mut self.font_size, 10.0..=30.0).text("pt"));
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.label("Timeout:");
+                        ui.add(
+                            egui::Slider::new(&mut self.timeout_seconds, 5..=300).text("s"),
+                        );
+                    });
+
+                    ui.checkbox(&mut self.theme_dark, "Dark Mode");
+                    ui.checkbox(&mut self.enable_caching, "Cache");
+
+                    ui.add_space(10.0);
+
+                    // Status message
+                    ui.label(
+                        egui::RichText::new(&self.status)
+                            .size(10.0)
+                            .color(get_status_color(&self.status)),
+                    );
+                });
             });
 
-            ui.separator();
-
-            // タブナビゲーション
-            ui.horizontal(|ui| {
-                // PE Analyzer tabs
-                if self.result.is_some() {
-                    ui.selectable_value(&mut self.selected_tab, Tab::Overview, "Overview");
-                    ui.selectable_value(&mut self.selected_tab, Tab::PeInfo, "PE Info");
-                    ui.selectable_value(&mut self.selected_tab, Tab::Imports, "Imports");
-                    ui.selectable_value(&mut self.selected_tab, Tab::Strings, "Strings");
-                    ui.selectable_value(&mut self.selected_tab, Tab::Signature, "Signature");
-                    ui.separator();
-                }
-
-                // Management tabs (常に表示)
-                ui.selectable_value(&mut self.selected_tab, Tab::RemoteExecution, "🖥️ Remote Exec");
-                ui.selectable_value(&mut self.selected_tab, Tab::ServiceManagement, "⚙️ Services");
-                ui.selectable_value(&mut self.selected_tab, Tab::Registry, "📋 Registry");
-                ui.selectable_value(&mut self.selected_tab, Tab::Script, "📝 Script");
-            });
-
-            ui.separator();
+        // Central content area
+        egui::CentralPanel::default().show(ctx, |ui| {
 
             match self.selected_tab {
                 // PE Analysis tabs
@@ -525,6 +645,11 @@ impl eframe::App for AnalyzerApp {
                 Tab::Script => {
                     egui::ScrollArea::vertical().show(ui, |ui| {
                         show_script_executor(ui, self);
+                    });
+                }
+                Tab::Settings => {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        show_settings(ui, self);
                     });
                 }
             }
@@ -1154,15 +1279,10 @@ fn show_service_management(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
 
     ui.separator();
 
-    let status_color = if app.service_status_message.contains("Error") || app.service_status_message.contains("error") {
-        egui::Color32::from_rgb(255, 100, 100)
-    } else if app.service_status_message.contains("✓") {
-        egui::Color32::from_rgb(100, 255, 100)
-    } else {
-        egui::Color32::LIGHT_BLUE
-    };
-
-    ui.colored_label(status_color, &app.service_status_message);
+    let status_color = get_status_color(&app.service_status_message);
+    ui.label(egui::RichText::new(&app.service_status_message)
+        .size(12.0)
+        .color(status_color));
 }
 
 fn show_service_create_dialog(ctx: &egui::Context, app: &mut AnalyzerApp) {
@@ -1608,5 +1728,79 @@ fn show_script_executor(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
     };
 
     ui.colored_label(status_color, &app.script_status_message);
+}
+
+fn show_settings(ui: &mut egui::Ui, app: &mut AnalyzerApp) {
+    ui.heading(egui::RichText::new("⚙️ Settings").size(20.0).strong());
+    ui.add_space(15.0);
+
+    // Font Size Settings
+    ui.group(|ui| {
+        ui.label(egui::RichText::new("📝 Font Size").size(16.0).strong());
+        ui.add_space(8.0);
+
+        ui.horizontal(|ui| {
+            ui.label("Font Size (pt):");
+            ui.add(egui::Slider::new(&mut app.font_size, 10.0..=30.0).text("pt"));
+        });
+
+        ui.label(format!("Current: {:.0}pt", app.font_size));
+        ui.colored_label(egui::Color32::GRAY, "Adjust to make text larger or smaller");
+        ui.add_space(10.0);
+    });
+
+    // Theme Settings
+    ui.group(|ui| {
+        ui.label(egui::RichText::new("🎨 Theme").size(16.0).strong());
+        ui.add_space(8.0);
+
+        let theme_enabled = app.theme_dark;
+        let theme_label = if theme_enabled { "Enabled" } else { "Disabled" };
+        ui.horizontal(|ui| {
+            ui.label("Dark Mode:");
+            ui.checkbox(&mut app.theme_dark, theme_label);
+        });
+
+        ui.colored_label(
+            if theme_enabled { egui::Color32::GREEN } else { egui::Color32::GRAY },
+            if theme_enabled { "✓ Dark mode enabled" } else { "Light mode" }
+        );
+        ui.colored_label(egui::Color32::GRAY, "Choose between dark and light themes");
+        ui.add_space(10.0);
+    });
+
+    // Font Presets
+    ui.group(|ui| {
+        ui.label(egui::RichText::new("⚡ Quick Presets").size(16.0).strong());
+        ui.add_space(8.0);
+
+        ui.horizontal(|ui| {
+            if ui.button("Small (12pt)").clicked() {
+                app.font_size = 12.0;
+            }
+            if ui.button("Normal (15pt)").clicked() {
+                app.font_size = 15.0;
+            }
+            if ui.button("Large (18pt)").clicked() {
+                app.font_size = 18.0;
+            }
+            if ui.button("XLarge (22pt)").clicked() {
+                app.font_size = 22.0;
+            }
+        });
+        ui.add_space(10.0);
+    });
+
+    // Info
+    ui.group(|ui| {
+        ui.label(egui::RichText::new("ℹ️ Information").size(16.0).strong());
+        ui.add_space(8.0);
+
+        ui.vertical(|ui| {
+            ui.label("🔧 PAExec-rs v1.0");
+            ui.label("PE File Analyzer & Remote Execution Tool");
+            ui.colored_label(egui::Color32::GRAY, "Windows x86-64 compatible");
+        });
+    });
 }
 

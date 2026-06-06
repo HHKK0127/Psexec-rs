@@ -1,0 +1,21 @@
+# Build artifacts
+/target/
+*.pdb
+*.exe
+*.rlib
+
+# Dependencies
+/deps/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Rust
+Cargo.lock

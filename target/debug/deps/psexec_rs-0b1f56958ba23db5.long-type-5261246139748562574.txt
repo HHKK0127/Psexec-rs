@@ -1,1 +1,0 @@
-Result<HANDLE, windows_core::error::Error>: windows_core::param::IntoParam<HANDLE, windows_core::r#type::CopyType>
