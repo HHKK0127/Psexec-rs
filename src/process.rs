@@ -114,11 +114,51 @@ pub fn start_process(
         ResumeThread(pi.hThread);
     }
 
-    Ok(ProcessInfo {
+    let info = ProcessInfo {
         process_handle: pi.hProcess,
         thread_handle: pi.hThread,
         process_id: pi.dwProcessId,
-    })
+    };
+
+    wait_for_process(&info, settings)?;
+
+    Ok(info)
+}
+
+fn wait_for_process(process: &ProcessInfo, settings: &RemoteSettings) -> Result<(), String> {
+    if settings.dont_wait_for_terminate {
+        return Ok(());
+    }
+
+    unsafe {
+        let timeout_ms = if settings.timeout_seconds > 0 {
+            settings.timeout_seconds * 1000
+        } else {
+            INFINITE
+        };
+
+        let wait_result = WaitForSingleObject(process.process_handle, timeout_ms);
+
+        match wait_result {
+            WAIT_OBJECT_0 => {
+                Ok(())
+            }
+            WAIT_TIMEOUT => {
+                if settings.timeout_seconds > 0 {
+                    let _ = TerminateProcess(process.process_handle, 1);
+                    Err(format!(
+                        "Process {} timed out after {} seconds",
+                        process.process_id, settings.timeout_seconds
+                    ))
+                } else {
+                    Ok(())
+                }
+            }
+            _ => {
+                Err(format!("WaitForSingleObject failed for process {}", process.process_id))
+            }
+        }
+    }
 }
 
 fn get_user_handle(
