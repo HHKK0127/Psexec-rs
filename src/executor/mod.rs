@@ -88,6 +88,8 @@ impl ExecutionResult {
 
 pub mod wmi;
 pub mod task_scheduler;
+pub mod batch;
+pub mod logging;
 
 #[cfg(test)]
 mod tests {

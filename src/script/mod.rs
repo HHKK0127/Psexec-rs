@@ -9,10 +9,12 @@ use std::fmt;
 pub mod powershell;
 pub mod vbscript;
 pub mod batch;
+pub mod executor;
 
 pub use powershell::*;
 pub use vbscript::*;
 pub use batch::*;
+pub use executor::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ScriptType {

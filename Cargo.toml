@@ -23,6 +23,8 @@ tokio = { version = "1.35", features = ["full"] }
 serde_json = "1.0"
 async-trait = "0.1"
 clap = { version = "4.4", features = ["derive"] }
+dirs = "5.0"
+tempfile = "3.8"
 
 [dependencies.windows]
 version = "0.52"
