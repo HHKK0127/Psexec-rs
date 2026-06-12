@@ -1,9 +1,10 @@
 use windows::Win32::Foundation::HANDLE;
 use windows::Win32::System::Pipes::{
-    ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, PIPE_ACCESS_DUPLEX,
-    PIPE_TYPE_MESSAGE, PIPE_READMODE_MESSAGE, PIPE_WAIT, PIPE_UNLIMITED_INSTANCES,
+    ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe,
+    PIPE_TYPE_MESSAGE, PIPE_READMODE_MESSAGE, PIPE_UNLIMITED_INSTANCES,
     NMPWAIT_USE_DEFAULT_WAIT,
 };
+use windows::Win32::Storage::FileSystem::FILE_FLAGS_AND_ATTRIBUTES;
 
 pub const MSGID_SETTINGS: u16 = 1;
 pub const MSGID_RESP_SEND_FILES: u16 = 2;
@@ -192,6 +193,24 @@ impl RemMsg {
         v
     }
 
+    pub fn deserialize_u64(&mut self) -> u64 {
+        if self.read_pos + 8 > self.payload.len() {
+            return 0;
+        }
+        let v = u64::from_le_bytes([
+            self.payload[self.read_pos],
+            self.payload[self.read_pos + 1],
+            self.payload[self.read_pos + 2],
+            self.payload[self.read_pos + 3],
+            self.payload[self.read_pos + 4],
+            self.payload[self.read_pos + 5],
+            self.payload[self.read_pos + 6],
+            self.payload[self.read_pos + 7],
+        ]);
+        self.read_pos += 8;
+        v
+    }
+
     pub fn deserialize_bool(&mut self) -> bool {
         if self.read_pos >= self.payload.len() {
             return false;
@@ -215,16 +234,20 @@ impl NamedPipe {
         .collect();
 
         unsafe {
+            const PIPE_ACCESS_DUPLEX: u32 = 0x00000003;
             let handle = CreateNamedPipeW(
                 windows::core::PCWSTR(wide.as_ptr()),
-                PIPE_ACCESS_DUPLEX,
-                PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+                FILE_FLAGS_AND_ATTRIBUTES(PIPE_ACCESS_DUPLEX),
+                PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE,
                 PIPE_UNLIMITED_INSTANCES,
-                16384,
-                16384,
+                16384u32,
+                16384u32,
                 NMPWAIT_USE_DEFAULT_WAIT,
                 None,
-            )?;
+            );
+            if handle.is_invalid() {
+                return Err(windows::core::Error::from_win32());
+            }
             Ok(Self { handle })
         }
     }
@@ -245,15 +268,14 @@ impl NamedPipe {
 
         use windows::Win32::Storage::FileSystem::{
             CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
-            FILE_ATTRIBUTE_NORMAL, FILE_FLAG_OVERLAPPED,
+            FILE_FLAG_OVERLAPPED,
         };
-        use windows::Win32::Foundation::GENERIC_READ;
-        use windows::Win32::Foundation::GENERIC_WRITE;
+        use windows::Win32::Foundation::{GENERIC_READ, GENERIC_WRITE};
 
         unsafe {
             let handle = CreateFileW(
                 windows::core::PCWSTR(wide.as_ptr()),
-                GENERIC_READ | GENERIC_WRITE,
+                (GENERIC_READ | GENERIC_WRITE).0,
                 FILE_SHARE_READ | FILE_SHARE_WRITE,
                 None,
                 OPEN_EXISTING,

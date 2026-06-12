@@ -197,22 +197,19 @@ impl RemoteSettings {
 
     pub fn resolve_file_paths(&mut self) -> bool {
         let mut all_found = true;
-        let p_dir = if self.dest_dir.is_empty() {
-            &mut self.src_dir
+        let use_dest = !self.dest_dir.is_empty();
+
+        let (dir, file_list) = if use_dest {
+            (&mut self.dest_dir, &mut self.dest_file_infos)
         } else {
-            &mut self.dest_dir
-        };
-        let p_file_list = if self.dest_dir.is_empty() {
-            &mut self.src_file_infos
-        } else {
-            &mut self.dest_file_infos
+            (&mut self.src_dir, &mut self.src_file_infos)
         };
 
-        for fi in p_file_list.iter_mut() {
-            let mut path = if p_dir.is_empty() {
+        for fi in file_list.iter_mut() {
+            let mut path = if dir.is_empty() {
                 String::new()
             } else {
-                let d = p_dir.trim_end_matches('\\');
+                let d = dir.trim_end_matches('\\');
                 format!("{}\\{}", d, fi.filename_only)
             };
 

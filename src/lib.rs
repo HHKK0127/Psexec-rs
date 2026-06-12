@@ -8,9 +8,11 @@ pub mod error;
 pub mod pipe;
 pub mod file_transfer;
 pub mod output;
+pub mod proto;
 pub mod service;
 pub mod registry;
 pub mod script;
+pub mod settings;
 
 pub use auth::{AuthContext, AuthMethod};
 pub use cli_response::{ServiceInfo as CliServiceInfo, ServiceState as CliServiceState, ServiceListResponse, RegistryEntryInfo, RegistryListResponse, ScriptExecResult, OperationResult, CliResponse};
