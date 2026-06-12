@@ -89,6 +89,9 @@ fn run_modern_cli(cli: ModernCli) -> Result<(), Box<dyn std::error::Error>> {
 
 /// Legacy PsExec-compatible CLI
 fn run_legacy_cli(_args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    use psexec_rs::settings::RemoteSettings;
+    use psexec_rs::cli::ProcessPriority;
+
     let cli = parse_command_line();
 
     if cli.show_usage {
@@ -113,17 +116,55 @@ fn run_legacy_cli(_args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         return Err("Missing command".into());
     }
 
-    // Execute remote command
-    println!("Executing command on: {}", cli.computer_list.join(","));
-    println!("Command: {}", cli.app);
+    // Map CliArgs to RemoteSettings (Phase 2)
+    let mut settings = RemoteSettings::default();
+    settings.computer_list = cli.computer_list.clone();
+    settings.app = cli.app.clone();
+    settings.app_args = cli.app_args.join(" ");
+    settings.user = cli.user.unwrap_or_default();
+    settings.password = cli.password.unwrap_or_default();
+    settings.use_system_account = cli.use_system_account;
+    settings.interactive = cli.interactive;
+    settings.session_to_interact_with = cli.session_id.unwrap_or(-1);
+    settings.run_limited = cli.run_limited;
+    settings.dont_load_profile = cli.no_profile;
+    settings.copy_files = cli.copy_files;
+    settings.force_copy = cli.force_copy;
+    settings.copy_if_newer_or_higher_ver = cli.version_check_copy;
+    settings.working_dir = cli.working_dir.unwrap_or_default();
+    settings.dont_wait_for_terminate = cli.dont_wait;
+    settings.timeout_seconds = cli.timeout_seconds.unwrap_or(0);
+    settings.priority = priority_to_windows_class(cli.priority);
+    settings.allowed_processors = cli.processors.unwrap_or_default();
+    settings.run_elevated = cli.elevate;
+    settings.service_name = cli.service_name.unwrap_or_default();
+
+    // Display settings
+    println!("Executing command on: {}", settings.computer_list.join(","));
+    println!("Command: {}", settings.app);
+    if !settings.app_args.is_empty() {
+        println!("Args: {}", settings.app_args);
+    }
+    if settings.use_system_account {
+        println!("Mode: System account (-s)");
+    }
+    if settings.interactive {
+        println!("Mode: Interactive (-i)");
+    }
+    if !settings.working_dir.is_empty() {
+        println!("Working directory: {}", settings.working_dir);
+    }
+    if settings.timeout_seconds > 0 {
+        println!("Timeout: {} seconds", settings.timeout_seconds);
+    }
     println!();
 
     let receiver = remote_executor::execute_remote_command(
-        &cli.computer_list.join(","),
-        &cli.app,
-        cli.user.is_some(),
-        &cli.user.as_deref().unwrap_or(""),
-        &cli.password.as_deref().unwrap_or(""),
+        &settings.computer_list.join(","),
+        &settings.app,
+        !settings.user.is_empty(),
+        &settings.user,
+        &settings.password,
     );
 
     // Stream output from background thread
@@ -132,6 +173,19 @@ fn run_legacy_cli(_args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+/// Convert ProcessPriority enum to Windows priority class value
+fn priority_to_windows_class(priority: psexec_rs::cli::ProcessPriority) -> u32 {
+    use psexec_rs::cli::ProcessPriority;
+    match priority {
+        ProcessPriority::Realtime => 0x100,        // REALTIME_PRIORITY_CLASS
+        ProcessPriority::High => 0x80,             // HIGH_PRIORITY_CLASS
+        ProcessPriority::AboveNormal => 0x8000,    // ABOVE_NORMAL_PRIORITY_CLASS
+        ProcessPriority::Normal => 0x20,           // NORMAL_PRIORITY_CLASS
+        ProcessPriority::BelowNormal => 0x4000,    // BELOW_NORMAL_PRIORITY_CLASS
+        ProcessPriority::Idle => 0x40,             // IDLE_PRIORITY_CLASS
+    }
 }
 
 fn print_usage() {
