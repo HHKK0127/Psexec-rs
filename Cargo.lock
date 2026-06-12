@@ -2839,6 +2839,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "tokio",
+ "tracing",
  "uuid",
  "windows 0.52.0",
  "winresource",

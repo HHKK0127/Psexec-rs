@@ -90,6 +90,7 @@ pub mod wmi;
 pub mod task_scheduler;
 pub mod batch;
 pub mod logging;
+pub mod pool;
 
 #[cfg(test)]
 mod tests {
