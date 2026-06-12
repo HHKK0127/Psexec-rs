@@ -1,11 +1,13 @@
 # Build artifacts
 /target/
-*.pdb
-*.exe
-*.rlib
-
-# Dependencies
 /deps/
+*.exe
+*.pdb
+*.rlib
+*.dll
+
+# Cargo lock (optional for lib)
+# Cargo.lock
 
 # IDE
 .vscode/
@@ -17,5 +19,8 @@
 .DS_Store
 Thumbs.db
 
-# Rust
-Cargo.lock
+# Project specific
+*.log
+.psexec-rs.ini
+.psexec-rs.json
+execution-log-*.txt

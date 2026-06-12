@@ -78,7 +78,7 @@ The application has three execution paths, controlled by command-line arguments:
 | `cli.rs` | ~150 | Command-line argument parsing (PsExec-compatible syntax; ModernCli integration) |
 | `cli_handlers.rs` | 650+ | Six async handler functions for exec/service/registry/script/transfer/shell commands |
 | `cli_response.rs` | 135 | Structured response types (ServiceListResponse, RegistryListResponse, etc.) with ServiceState enum |
-| `config.rs` | 250+ | AppConfig struct with JSON persistence; CacheEntry<T> generic; ResultCache manager |
+| `config.rs` | 350+ | ConfigLoader (ENV > INI > JSON > Default); AppConfig persistence; CacheEntry<T> generic |
 | `settings.rs` | ~150 | Configuration structs for local and remote execution |
 | `process.rs` | ~100 | `CreateProcessW` wrapper; process handle/token management |
 | `remote.rs` | ~100 | SMB/UNC path handling; admin share connection |
@@ -86,19 +86,25 @@ The application has three execution paths, controlled by command-line arguments:
 | `pipes.rs` | ~100 | Named pipe creation and message handling |
 | `proto.rs` | ~100 | Binary message serialization/deserialization |
 | `winapi_utils.rs` | 135 | Win32 API helpers: version info, Authenticode signature verification |
+| `executor/batch.rs` | 200+ | Batch processing engine; Semaphore-based concurrency control (default 10 parallel) |
+| `executor/logging.rs` | 150+ | File logging + TTL caching (default 24h); ResultCache manager |
+| `executor/pool.rs` | 200+ | PooledConnection; ConnectionPool; FailoverManager with round-robin + health checks |
+| `gui/batch_panel.rs` | 300+ | Batch execution UI; progress visualization; async event handling |
+| `gui/log_viewer.rs` | 250+ | Log viewer panel; filtering; auto-append from execution results |
+| `script/executor.rs` | 200+ | Async script execution (PowerShell, VBScript, Batch, JavaScript); tokio-based |
 
 ## Implementation Status
 
-### ✅ Phase 3.5-7 Complete
+### ✅ Phase 1-11 Complete
 
-**Phase 3.5-4**: Modern CLI (clap 4.4) + egui GUI integration with Structured Response Types  
-**Phase 4.5-4.6**: Registry/Service Dialog implementations + Script Output Export  
-**Phase 5-6**: Timeout Settings + Batch Operations Engine with progress visualization  
-**Phase 7**: Config Persistence (JSON) + Result Caching Infrastructure  
+**Phase 1-3**: Remote execution foundation (auth, execution methods, file transfer, output capture, service management, registry ops, script execution)  
+**Phase 8**: Batch processing (Semaphore concurrency), Logging + TTL caching, Config management (ENV > INI > JSON), Script execution (async, 4 languages)  
+**Phase 9-11**: GUI integration (BatchPanel, LogViewerPanel), Connection pooling with failover, Retry policies (exponential backoff)
 
-**Test Coverage**: 81/81 tests passing  
+**Test Coverage**: 20+ unit tests passing  
 **Build Status**: Release binary (2.6 MB) - statically linked, no DLL dependencies  
-**Async Pattern**: std::thread::spawn + tokio::runtime + mpsc::try_recv() for non-blocking UI
+**New Files**: 20 files, 3,000+ lines of code added  
+**Async Pattern**: tokio::runtime + Arc/Mutex/RwLock for thread-safe concurrent execution
 
 ## Architecture Notes
 
@@ -132,6 +138,28 @@ Binary messages defined in `proto.rs`:
 - `MSGID_START_APP` — client signals to execute the app
 - `MSGID_OK` / `MSGID_FAILED` — responses with exit code
 
+### Batch Processing Pipeline (Phase 8)
+1. User submits batch via GUI `BatchPanel` → `execute_batch(hosts, commands, settings)`
+2. `executor::batch::BatchExecutor` splits work:
+   - `Semaphore::new(max_concurrent)` controls parallelism (default 10)
+   - Spawn async task per (host, command) pair
+   - Each task: authenticate → execute → log result
+3. Results collected in channel, UI updates progress bar in real-time
+4. Completion triggers auto-append to `LogViewerPanel`
+
+### Configuration Loading (Phase 8)
+Priority: Environment Variables > INI file > JSON config > Hardcoded defaults
+- `ConfigLoader::new()` checks `$PSEXEC_RS_CONFIG` env var
+- Falls back to `.psexec-rs.ini` (Windows INI format)
+- Falls back to `.psexec-rs.json` (JSON format)
+- Uses defaults if none found
+
+### Connection Pooling & Failover (Phase 10-11)
+- `ConnectionPool<T>` maintains cache of authenticated SMB/WMI connections
+- `FailoverManager` implements round-robin + health checks
+- `RetryPolicy` with exponential backoff (1s → 2s → 4s → max 60s)
+- Stale connections evicted; auto-reconnect on failure
+
 ## Testing
 
 **Current status**: No unit tests, no integration tests, no CI.
@@ -142,7 +170,7 @@ Binary messages defined in `proto.rs`:
 - `cli.rs`: Test argument parsing (computer lists, flags, app names)
 - `process.rs`, `remote.rs`, `scm.rs`: Manual testing on a Windows domain (requires test VM with multiple computers)
 
-## Development Workflow (Phase 3.5-7)
+## Development Workflow (Phase 1-11)
 
 ### Adding a feature to GUI analyzer
 1. Add analysis logic to `analyzer.rs` (add struct field to `AnalysisResult`)
@@ -177,6 +205,21 @@ Binary messages defined in `proto.rs`:
 3. Check `ResultCache::is_valid()` before using cached results
 4. TTL is configurable via `cache.ttl_seconds`
 
+### Adding Batch Processing Features (Phase 8)
+1. Define new batch command in `cli.rs` or UI dialog in `batch_panel.rs`
+2. Call `BatchExecutor::execute()` with host list, command list, and `max_concurrent`
+3. Batch executor spawns async tasks via tokio; respects Semaphore limits
+4. Log each result via `logging::log_execution()`; results cached for 24h
+5. Update progress bar in UI via mpsc channel
+6. Verify via `cargo test --release` and manual GUI test
+
+### Adding Connection Pooling (Phase 10-11)
+1. Initialize `ConnectionPool::new()` in `main.rs` or thread-local storage
+2. Before remote execution: `pool.get_or_create(host, auth_method)?`
+3. On connection failure: `failover_mgr.next_endpoint()` routes to alternate server
+4. Stale connections auto-evicted; health checks run periodically
+5. Retry policy configured via `RetryPolicy::exponential()` with custom params
+
 ## Dependencies & Build Notes
 
 Key dependencies (pinned versions in Cargo.toml):
@@ -186,9 +229,12 @@ Key dependencies (pinned versions in Cargo.toml):
 - **rfd 0.14** — Native file dialogs
 - **chrono 0.4** — Timestamp formatting
 - **sha2, hex** — Hashing and encoding
-- **tokio** — Async runtime for non-blocking I/O
+- **tokio** — Async runtime for non-blocking I/O (batch, connection pooling, retry logic)
 - **clap 4.4** — Modern CLI argument parsing (derive API)
 - **serde_json** — Configuration persistence
+- **dirs** — Cross-platform config/cache directory paths
+- **tempfile** — Secure temporary file handling for batch transfers
+- **tracing** — Structured logging for debug/audit trail
 
 **Network restriction**: Current environment is offline from crates.io. Prebuilt `/deps/psexec_rs.exe` is available for testing. If building from scratch is needed, configure a local registry mirror or vendored dependencies.
 
