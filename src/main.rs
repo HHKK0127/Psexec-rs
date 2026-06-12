@@ -15,8 +15,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return run_service_mode();
     }
 
-    // Special case: no arguments - GUI mode
-    if args.len() == 1 {
+    // Special case: no arguments or --gui flag - GUI mode
+    if args.len() == 1 || (args.len() == 2 && args[1] == "--gui") {
         return run_gui().map_err(|e| Box::new(e) as Box<dyn std::error::Error>);
     }
 

@@ -5,6 +5,7 @@ pub mod cli_response;
 pub mod config;
 pub mod executor;
 pub mod error;
+pub mod gui;
 pub mod pipe;
 pub mod file_transfer;
 pub mod output;

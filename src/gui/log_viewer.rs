@@ -2,12 +2,14 @@
 
 use crate::executor::logging::ExecutionLogEntry;
 use eframe::egui;
+use chrono::Local;
 
 pub struct LogViewerPanel {
     filter: String,
     level_filter: LogLevelFilter,
     auto_scroll: bool,
     entries: Vec<ExecutionLogEntry>,
+    selected_entry: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -24,11 +26,21 @@ impl LogViewerPanel {
             level_filter: LogLevelFilter::All,
             auto_scroll: true,
             entries: Vec::new(),
+            selected_entry: None,
         }
     }
 
     pub fn add_entry(&mut self, entry: ExecutionLogEntry) {
         self.entries.push(entry);
+        // Keep only last 1000 entries to prevent memory bloat
+        if self.entries.len() > 1000 {
+            self.entries.remove(0);
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.selected_entry = None;
     }
 
     pub fn render(&mut self, ui: &mut egui::Ui) {
@@ -51,20 +63,27 @@ impl LogViewerPanel {
             ui.checkbox(&mut self.auto_scroll, "Auto-scroll");
 
             if ui.button("Clear").clicked() {
-                self.entries.clear();
+                self.clear();
             }
         });
+
+        // Stats
+        let total = self.entries.len();
+        let success = self.entries.iter().filter(|e| e.success).count();
+        let failed = total - success;
+        ui.label(format!("Total: {} | Success: {} | Failed: {}", total, success, failed));
 
         // Log entries
         egui::ScrollArea::vertical()
             .auto_shrink([false; 2])
             .stick_to_bottom(self.auto_scroll)
             .show(ui, |ui| {
-                for entry in &self.entries {
+                for (idx, entry) in self.entries.iter().enumerate().rev() {
                     // Apply filters
                     if !self.filter.is_empty() {
                         if !entry.computer.contains(&self.filter) &&
-                           !entry.command.contains(&self.filter) {
+                           !entry.command.contains(&self.filter) &&
+                           !entry.stdout.contains(&self.filter) {
                             continue;
                         }
                     }
@@ -77,24 +96,41 @@ impl LogViewerPanel {
 
                     // Render entry
                     let color = if entry.success {
-                        egui::Color32::GREEN
+                        egui::Color32::from_rgb(0, 200, 0)
                     } else {
-                        egui::Color32::RED
+                        egui::Color32::from_rgb(200, 0, 0)
                     };
 
-                    ui.horizontal(|ui| {
-                        ui.label(entry.timestamp.format("%H:%M:%S").to_string());
-                        ui.colored_label(color, &entry.computer);
-                        ui.label(&entry.command);
-                        ui.label(format!("({}ms)", entry.duration_ms));
-                    });
+                    let is_selected = self.selected_entry == Some(idx);
 
-                    if !entry.stdout.is_empty() {
-                        ui.monospace(&entry.stdout);
-                    }
-                    if !entry.stderr.is_empty() {
-                        ui.colored_label(egui::Color32::RED, &entry.stderr);
-                    }
+                    egui::Frame::group(ui.style()).show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            if ui.selectable_label(is_selected,
+                                format!("{} | {}",
+                                    entry.timestamp.format("%H:%M:%S"),
+                                    entry.computer
+                                )
+                            ).clicked() {
+                                self.selected_entry = Some(idx);
+                            }
+
+                            ui.colored_label(color, if entry.success { "✓" } else { "✗" });
+                            ui.label(&entry.command);
+                            ui.label(format!("({}ms)", entry.duration_ms));
+                        });
+
+                        if is_selected {
+                            ui.separator();
+                            if !entry.stdout.is_empty() {
+                                ui.label("STDOUT:");
+                                ui.monospace(&entry.stdout);
+                            }
+                            if !entry.stderr.is_empty() {
+                                ui.colored_label(egui::Color32::RED, "STDERR:");
+                                ui.monospace(&entry.stderr);
+                            }
+                        }
+                    });
                 }
             });
     }

@@ -99,6 +99,10 @@ pub struct AnalyzerApp {
     // Output streaming receiver (not serialized)
     pub output_receiver: Option<std::sync::mpsc::Receiver<String>>,
 
+    // Batch Execution Panel (Phase 1 integration)
+    pub batch_panel: psexec_rs::gui::batch_panel::BatchPanel,
+    pub log_panel: psexec_rs::gui::log_viewer::LogViewerPanel,
+
     // Settings/Font options
     pub font_size: f32,
     pub theme_dark: bool,
@@ -115,6 +119,8 @@ pub enum Tab {
     ServiceManagement,
     Registry,
     Script,
+    Batch,
+    ExecutionLog,
     Settings,
 }
 
@@ -181,6 +187,8 @@ impl Default for AnalyzerApp {
             output_receiver: None,
             font_size: 15.0,
             theme_dark: true,
+            batch_panel: psexec_rs::gui::batch_panel::BatchPanel::new(),
+            log_panel: psexec_rs::gui::log_viewer::LogViewerPanel::new(),
         }
     }
 }
@@ -385,6 +393,9 @@ impl AnalyzerApp {
 
 impl eframe::App for AnalyzerApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Poll batch execution progress
+        self.batch_panel.poll_progress();
+
         // Process async results
         if let Some(ref rx) = self.service_list_rx {
             if let Ok(result) = rx.try_recv() {
@@ -521,6 +532,19 @@ impl eframe::App for AnalyzerApp {
 
                     ui.separator();
 
+                    // Batch Operations section
+                    ui.label(
+                        egui::RichText::new("BATCH OPERATIONS")
+                            .size(13.0)
+                            .strong()
+                            .color(color_bright_cyan),
+                    );
+                    ui.add_space(5.0);
+                    self.nav_button(ui, "Batch Exec", Tab::Batch, color_cyan);
+                    self.nav_button(ui, "Exec Log", Tab::ExecutionLog, color_cyan);
+
+                    ui.separator();
+
                     // Settings section
                     ui.label(
                         egui::RichText::new("SETTINGS")
@@ -646,6 +670,12 @@ impl eframe::App for AnalyzerApp {
                     egui::ScrollArea::vertical().show(ui, |ui| {
                         show_script_executor(ui, self);
                     });
+                }
+                Tab::Batch => {
+                    self.batch_panel.render(ui);
+                }
+                Tab::ExecutionLog => {
+                    self.log_panel.render(ui);
                 }
                 Tab::Settings => {
                     egui::ScrollArea::vertical().show(ui, |ui| {
