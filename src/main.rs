@@ -121,9 +121,9 @@ fn run_legacy_cli(_args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let receiver = remote_executor::execute_remote_command(
         &cli.computer_list.join(","),
         &cli.app,
-        !cli.user.is_empty(),
-        &cli.user,
-        &cli.password,
+        cli.user.is_some(),
+        &cli.user.as_deref().unwrap_or(""),
+        &cli.password.as_deref().unwrap_or(""),
     );
 
     // Stream output from background thread
