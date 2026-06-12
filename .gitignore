@@ -24,3 +24,11 @@ Thumbs.db
 .psexec-rs.ini
 .psexec-rs.json
 execution-log-*.txt
+
+# Claude Code session management
+.claude/memory/
+PHASE_*.md
+NEXT_SESSION_PROMPT.md
+PROJECT_STATE.txt
+PROJECT_SUMMARY.txt
+PSEXEC_RS_MEMORY.md
