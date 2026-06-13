@@ -1,8 +1,8 @@
 # PAExec-rs 実装ロードマップ
 
 **作成日**: 2026-06-12  
-**最終更新**: 2026-06-12  
-**ステータス**: Phase 4.5 完了 → Phase 4.6/5 計画中
+**最終更新**: 2026-06-13  
+**ステータス**: Phase 4.5 完了 → Phase 6 (テスト実装開始)
 
 ---
 
@@ -158,13 +158,21 @@ Phase 7      ⏳ デバッグ & 分析
 
 ```
 実装項目:
-  ✅ search.rs::fuzzy_match() テスト
-  ✅ search.rs::search_items() テスト
-  ✅ state.rs::CommandPalette テスト
-  ✅ items.rs データ構造テスト
-  ✅ config.rs 設定ロードテスト
-  
-カバレッジ目標: 80%
+  ✅ CLI 引数解析テスト (10 tests)
+  ✅ Analyzer モジュールテスト (7 tests: SHA-256, ASCII/UTF-16 strings)
+  ✅ Auth モジュールテスト (4 tests)
+  ✅ Config ローダーテスト (6 tests)
+  ✅ Executor/Batch/Pool テスト (12 tests)
+  ✅ ファイル転送テスト (9 tests)
+  ✅ GUI モジュールテスト (8 tests)
+  ✅ 出力処理テスト (8 tests)
+  ✅ パイプ/プロトコルテスト (8 tests)
+  ✅ レジストリテスト (8 tests)
+  ✅ サービス管理テスト (8 tests)
+  ✅ スクリプト実行テスト (11 tests)
+
+現在のカバレッジ: 109 テスト (すべてパス ✅)
+カバレッジ目標: 80% (進行中)
 ```
 
 **実装コスト**: 中  

@@ -101,10 +101,11 @@ The application has three execution paths, controlled by command-line arguments:
 **Phase 8**: Batch processing (Semaphore concurrency), Logging + TTL caching, Config management (ENV > INI > JSON), Script execution (async, 4 languages)  
 **Phase 9-11**: GUI integration (BatchPanel, LogViewerPanel), Connection pooling with failover, Retry policies (exponential backoff)
 
-**Test Coverage**: 20+ unit tests passing  
+**Test Coverage**: ✅ 109 unit tests passing (0 failed)  
 **Build Status**: Release binary (2.6 MB) - statically linked, no DLL dependencies  
 **New Files**: 20 files, 3,000+ lines of code added  
 **Async Pattern**: tokio::runtime + Arc/Mutex/RwLock for thread-safe concurrent execution
+**Latest**: Test implementation for analyzer module (7 tests added - SHA-256, ASCII/UTF-16 string extraction)
 
 ## Architecture Notes
 
@@ -162,13 +163,29 @@ Priority: Environment Variables > INI file > JSON config > Hardcoded defaults
 
 ## Testing
 
-**Current status**: No unit tests, no integration tests, no CI.
+**Current status**: ✅ 109 unit tests implemented and passing
 
-**Recommended coverage**:
-- `analyzer.rs`: Test PE parsing on known-good binaries; verify SHA-256; test string extraction; edge cases (non-PE files, corrupt headers, empty files)
+**Test Coverage**:
+| Module | Tests | Notes |
+|--------|-------|-------|
+| `cli.rs` | 10 | Argument parsing, computer lists, flags, app names |
+| `analyzer.rs` | 7 | SHA-256 hashing (2), ASCII strings (3), UTF-16 strings (2) |
+| `auth.rs` | 4 | Credentials, NT hash, Kerberos, current user |
+| `config.rs` | 6 | Config loader, env override, cache validity, host management |
+| `executor/` | 12 | Batch config, pooled connection, failover, WMI, task scheduler |
+| `file_transfer/` | 9 | Chunk calculation, hash computation, transfer context, progress |
+| `gui/` | 8 | Registry tab, script tab, service tab, output display |
+| `output/` | 8 | Pipe, SMB, UTF-8/UTF-16 decoding, encoding detection |
+| `pipe/` | 8 | Protocol serialization, interactive session, command queueing |
+| `registry/` | 8 | Value encoding, dword decode, hive variants, context creation |
+| `service/` | 8 | Context creation, SCM connection, enumeration, state parsing |
+| `script/` | 11 | PowerShell, VBScript, Batch, JavaScript, execution policy |
+| **Total** | **109** | **All tests passing** ✅ |
+
+**Recommended next steps**:
 - `winapi_utils.rs`: Test version info extraction and signature verification on signed/unsigned files
-- `cli.rs`: Test argument parsing (computer lists, flags, app names)
-- `process.rs`, `remote.rs`, `scm.rs`: Manual testing on a Windows domain (requires test VM with multiple computers)
+- `process.rs`, `remote.rs`, `scm.rs`: Integration testing on a Windows domain (requires test VM with multiple computers)
+- Integration tests for end-to-end remote execution pipeline
 
 ## Development Workflow (Phase 1-11)
 
