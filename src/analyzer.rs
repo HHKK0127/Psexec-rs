@@ -254,7 +254,7 @@ fn extract_strings(data: &[u8]) -> (Vec<String>, Vec<String>) {
 }
 
 /// Extract ASCII strings (0x20-0x7E range) from binary data.
-fn extract_ascii_strings(data: &[u8]) -> Vec<String> {
+pub fn extract_ascii_strings(data: &[u8]) -> Vec<String> {
     let mut strings = Vec::new();
     let mut current = String::new();
 
@@ -282,7 +282,7 @@ fn extract_ascii_strings(data: &[u8]) -> Vec<String> {
 /// 1. Reading pairs of bytes as u16 (little-endian)
 /// 2. Validating characters (excluding surrogates, null terminators)
 /// 3. Always incrementing by 2 bytes (not 1), avoiding overlapping scans
-fn extract_unicode_strings(data: &[u8]) -> Vec<String> {
+pub fn extract_unicode_strings(data: &[u8]) -> Vec<String> {
     let mut strings = Vec::new();
     let mut current = String::new();
     let mut i = 0;
@@ -328,4 +328,73 @@ fn extract_unicode_strings(data: &[u8]) -> Vec<String> {
     }
 
     strings
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compute_sha256() {
+        let data = b"hello world";
+        let hash = compute_sha256(data);
+        assert_eq!(hash, "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9");
+    }
+
+    #[test]
+    fn test_compute_sha256_empty() {
+        let data = b"";
+        let hash = compute_sha256(data);
+        assert_eq!(hash, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    }
+
+    #[test]
+    fn test_extract_ascii_strings_basic() {
+        let data = b"hello\x00world\x00test";
+        let result = extract_ascii_strings(data);
+        assert!(result.contains(&"hello".to_string()));
+        assert!(result.contains(&"world".to_string()));
+        assert!(result.contains(&"test".to_string()));
+    }
+
+    #[test]
+    fn test_extract_ascii_strings_min_length() {
+        let data = b"abc\x00defg\x00toolong";
+        let result = extract_ascii_strings(data);
+        assert!(!result.contains(&"abc".to_string()));
+        assert!(result.contains(&"defg".to_string()));
+        assert!(result.contains(&"toolong".to_string()));
+    }
+
+    #[test]
+    fn test_extract_ascii_strings_empty() {
+        let data = b"";
+        let result = extract_ascii_strings(data);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_extract_unicode_strings_basic() {
+        let data = "hello".encode_utf16(|c| {
+            let bytes = (c as u16).to_le_bytes();
+            [bytes[0], bytes[1]]
+        }).flatten().collect::<Vec<u8>>();
+        let result = extract_unicode_strings(&data);
+        assert!(result.iter().any(|s| s.contains("hello")));
+    }
+
+    #[test]
+    fn test_extract_unicode_strings_empty() {
+        let data: Vec<u8> = vec![];
+        let result = extract_unicode_strings(&data);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_analysis_result_default() {
+        let result = AnalysisResult::default();
+        assert_eq!(result.file_path, "");
+        assert_eq!(result.file_size, 0);
+        assert_eq!(result.sha256, "");
+    }
 }
