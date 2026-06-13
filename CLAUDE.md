@@ -101,11 +101,30 @@ The application has three execution paths, controlled by command-line arguments:
 **Phase 8**: Batch processing (Semaphore concurrency), Logging + TTL caching, Config management (ENV > INI > JSON), Script execution (async, 4 languages)  
 **Phase 9-11**: GUI integration (BatchPanel, LogViewerPanel), Connection pooling with failover, Retry policies (exponential backoff)
 
-**Test Coverage**: ✅ 109 unit tests passing (0 failed)  
+### ✅ Phase 4.4-4.6 Complete
+
+**Phase 4.4**: Command Palette integration (Ctrl+P hotkey, palette rendering)  
+**Phase 4.5**: Pane Layout System (WezTerm-style binary tree layout)  
+**Phase 4.6**: Performance Optimization (Damage Tracking, Memory Pool, Frame Rate Monitor)
+
+### ✅ Phase 5-6 Complete
+
+**Phase 5**: Management UI & Settings Management
+- Host Book: remote host list, grouping, search, favorites
+- Settings Panel: general, appearance, advanced, profiles
+- Profile Management: save/load/export/import execution profiles
+- Profile Persistence: JSON-based file I/O
+
+**Phase 6**: Test Implementation & CI/CD
+- Integration Tests: 12 tests covering CLI→Executor, Config→Execution, E2E workflows
+- GitHub Actions: CI pipeline (check, unit tests, integration tests, fmt, clippy, coverage)
+- GitHub Releases: automatic release builds on tag push
+
+**Test Coverage**: ✅ 140 unit tests passing (0 failed)  
 **Build Status**: Release binary (2.6 MB) - statically linked, no DLL dependencies  
-**New Files**: 20 files, 3,000+ lines of code added  
+**New Files**: 50+ files, 10,000+ lines of code added across all phases  
 **Async Pattern**: tokio::runtime + Arc/Mutex/RwLock for thread-safe concurrent execution
-**Latest**: Test implementation for analyzer module (7 tests added - SHA-256, ASCII/UTF-16 string extraction)
+**Latest**: Phase 4.6 Performance Optimization complete
 
 ## Architecture Notes
 
