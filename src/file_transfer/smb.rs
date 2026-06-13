@@ -4,7 +4,7 @@
 use crate::error::{PaExecError, Result, RetryPolicy};
 use crate::auth::AuthContext;
 use crate::file_transfer::{
-    FileMetadata, FileTransferContext, TransferDirection, TransferMethod, TransferResult,
+    FileMetadata, FileTransferContext, TransferDirection, TransferResult,
 };
 use std::fs;
 use std::path::Path;

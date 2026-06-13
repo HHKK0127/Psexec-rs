@@ -1,10 +1,9 @@
 //! File transfer module for remote file operations
 //! Supports SMB/Admin$ share uploads and downloads
 
-use crate::error::{PaExecError, Result};
+use crate::error::Result;
 use crate::auth::AuthContext;
 use serde::{Deserialize, Serialize};
-use std::path::Path;
 
 pub mod chunks;
 pub mod smb;

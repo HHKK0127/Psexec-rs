@@ -2,7 +2,6 @@
 
 use crate::executor::logging::ExecutionLogEntry;
 use eframe::egui;
-use chrono::Local;
 
 pub struct LogViewerPanel {
     filter: String,

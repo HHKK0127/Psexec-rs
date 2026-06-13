@@ -1,7 +1,7 @@
 //! Service management tab for GUI
 
 use egui::{Color32, RichText};
-use crate::service::{ServiceContext, ServiceInfo, ServiceState};
+use crate::service::{ServiceInfo, ServiceState};
 
 pub struct ServiceTab {
     host: String,
