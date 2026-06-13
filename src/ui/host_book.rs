@@ -238,7 +238,7 @@ mod tests {
     fn test_favorites_filter() {
         let mut book = HostBook::new();
         let mut host1 = HostEntry::new("server1", "192.168.1.10");
-        let mut host2 = HostEntry::new("server2", "192.168.1.20");
+        let host2 = HostEntry::new("server2", "192.168.1.20");
 
         host1.is_favorite = true;
         book.add_host(host1);

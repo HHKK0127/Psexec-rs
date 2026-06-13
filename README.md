@@ -649,12 +649,6 @@ Before submitting:
 
 ---
 
-## Author & Contributors
-
-**Original Author**: Hiroki Kogarumai (HHKK0127)
-
-**Phase 1-3 Implementation**: Claude (Anthropic)
-
 ---
 
 ## License
@@ -870,12 +864,6 @@ cargo test --lib
 ## ライセンス
 
 MIT ライセンス — LICENSE ファイルを参照してください。
-
-## 作者
-
-**原著者**: 小柄梅 寛貴（HHKK0127）
-
-**Phase 1-3 実装**: Claude（Anthropic）
 
 ---
 

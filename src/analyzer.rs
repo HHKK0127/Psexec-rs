@@ -375,10 +375,10 @@ mod tests {
 
     #[test]
     fn test_extract_unicode_strings_basic() {
-        let data = "hello".encode_utf16(|c| {
-            let bytes = (c as u16).to_le_bytes();
-            [bytes[0], bytes[1]]
-        }).flatten().collect::<Vec<u8>>();
+        let data: Vec<u8> = "hello"
+            .encode_utf16()
+            .flat_map(|u| u.to_le_bytes())
+            .collect();
         let result = extract_unicode_strings(&data);
         assert!(result.iter().any(|s| s.contains("hello")));
     }
