@@ -15,6 +15,7 @@ pub mod registry;
 pub mod script;
 pub mod settings;
 pub mod profile;
+pub mod performance;
 
 pub use auth::{AuthContext, AuthMethod};
 pub use cli_response::{ServiceInfo as CliServiceInfo, ServiceState as CliServiceState, ServiceListResponse, RegistryEntryInfo, RegistryListResponse, ScriptExecResult, OperationResult, CliResponse};
