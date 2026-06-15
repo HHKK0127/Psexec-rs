@@ -1,10 +1,9 @@
 //! Windows Registry operations module
 //! Provides high-level interface for registry manipulation
 
-use crate::error::{PaExecError, Result};
+use crate::error::Result;
 use crate::auth::AuthContext;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 pub mod remote;
 

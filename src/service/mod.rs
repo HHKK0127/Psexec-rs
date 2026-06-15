@@ -1,7 +1,7 @@
 //! Windows Service management module
 //! Provides high-level interface for service operations
 
-use crate::error::{PaExecError, Result};
+use crate::error::Result;
 use crate::auth::AuthContext;
 use serde::{Deserialize, Serialize};
 use std::fmt;

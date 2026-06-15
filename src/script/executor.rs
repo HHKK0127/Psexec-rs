@@ -1,7 +1,7 @@
 //! Real script execution using tokio::process::Command
 
 use crate::error::{PaExecError, Result};
-use crate::script::{ExecutionPolicy, ScriptExecution, ScriptResult, ScriptType};
+use crate::script::{ScriptExecution, ScriptResult, ScriptType};
 use std::process::Stdio;
 use std::time::Instant;
 use tokio::fs;

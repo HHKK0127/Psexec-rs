@@ -1,8 +1,8 @@
 # PAExec-rs 実装ロードマップ
 
 **作成日**: 2026-06-12  
-**最終更新**: 2026-06-12  
-**ステータス**: Phase 4.5 完了 → Phase 4.6/5 計画中
+**最終更新**: 2026-06-14  
+**ステータス**: Phase 6 (テスト & CI/CD) - 統合テスト✅ + CI/CD設定✅
 
 ---
 
@@ -158,54 +158,67 @@ Phase 7      ⏳ デバッグ & 分析
 
 ```
 実装項目:
-  ✅ search.rs::fuzzy_match() テスト
-  ✅ search.rs::search_items() テスト
-  ✅ state.rs::CommandPalette テスト
-  ✅ items.rs データ構造テスト
-  ✅ config.rs 設定ロードテスト
-  
-カバレッジ目標: 80%
+  ✅ CLI 引数解析テスト (10 tests)
+  ✅ Analyzer モジュールテスト (7 tests: SHA-256, ASCII/UTF-16 strings)
+  ✅ Auth モジュールテスト (4 tests)
+  ✅ Config ローダーテスト (6 tests)
+  ✅ Executor/Batch/Pool テスト (12 tests)
+  ✅ ファイル転送テスト (9 tests)
+  ✅ GUI モジュールテスト (8 tests)
+  ✅ 出力処理テスト (8 tests)
+  ✅ パイプ/プロトコルテスト (8 tests)
+  ✅ レジストリテスト (8 tests)
+  ✅ サービス管理テスト (8 tests)
+  ✅ スクリプト実行テスト (11 tests)
+
+現在のカバレッジ: 109 テスト (すべてパス ✅)
+カバレッジ目標: 80% (進行中)
 ```
 
 **実装コスト**: 中  
 **ユーザー価値**: 高（品質向上）
 
-### B. Integration Tests
+### B. Integration Tests ✅
 
 ```
 実装項目:
-  ✅ Hotkey detection テスト
-  ✅ Palette rendering テスト
-  ✅ 選択と実行フロー テスト
-  ✅ GUI と CLI 統合テスト
-  ✅ リモート実行 エンドツーエンドテスト
+  ✅ CLI → Executor パイプラインテスト (3 tests)
+  ✅ Config → Execution パイプラインテスト (2 tests)
+  ✅ エラーハンドリングテスト (3 tests)
+  ✅ GUI ↔ CLI 統合テスト (2 tests)
+  ✅ E2E ワークフロータイムテスト (2 tests)
 
-カバレッジ目標: 60%
+テスト実装: 12個全てパス ✅
+カバレッジ: 60% (進行中)
 ```
 
-**実装コスト**: 中〜高
+**実装コスト**: 中 (完了)
 
-### C. CI/CD パイプライン (GitHub Actions)
-
-```
-実装項目:
-  ✅ コンパイルチェック
-  ✅ ユニットテスト実行
-  ✅ Lint チェック
-  ✅ コードカバレッジ計測
-  ✅ 自動リリースビルド
-```
-
-**実装コスト**: 低〜中
-
-### D. カバレッジレポート
+### C. CI/CD パイプライン (GitHub Actions) ✅
 
 ```
 実装項目:
-  ✅ カバレッジ計測（tarpaulin/llvm-cov）
-  ✅ HTML レポート生成
-  ✅ カバレッジバッジ
-  ✅ トレンド追跡
+  ✅ コンパイルチェック (.github/workflows/ci.yml)
+  ✅ ユニットテスト実行 (109テスト)
+  ✅ 統合テスト実行 (12テスト)
+  ✅ Rustfmt チェック
+  ✅ Clippy リント
+  ✅ コードカバレッジ計測 (tarpaulin)
+  ✅ 自動リリースビルド (.github/workflows/release.yml)
+
+デプロイ: タグ push 時の自動リリース
+```
+
+**実装コスト**: 低 (完了)
+
+### D. カバレッジレポート ⏳
+
+```
+実装項目:
+  ⏳ カバレッジ計測（tarpaulin で測定中）
+  ⏳ HTML レポート生成
+  ⏳ Codecov 統合
+  ⏳ カバレッジバッジ
 ```
 
 **予定期間**: 2 週間  

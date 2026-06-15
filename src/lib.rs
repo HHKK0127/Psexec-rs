@@ -14,6 +14,8 @@ pub mod service;
 pub mod registry;
 pub mod script;
 pub mod settings;
+pub mod profile;
+pub mod performance;
 
 pub use auth::{AuthContext, AuthMethod};
 pub use cli_response::{ServiceInfo as CliServiceInfo, ServiceState as CliServiceState, ServiceListResponse, RegistryEntryInfo, RegistryListResponse, ScriptExecResult, OperationResult, CliResponse};
@@ -25,3 +27,4 @@ pub use output::{OutputFetchContext, OutputResult, OutputMethod, OutputFetcher, 
 pub use service::{ServiceContext, ServiceInfo, ServiceState, ServiceStartupType, ServiceResult};
 pub use registry::{RegistryContext, RegistryHive, RegistryValue, RegistryValueType, RegistryEntry};
 pub use script::{ScriptContext, ScriptExecution, ScriptResult, ScriptType, ExecutionPolicy};
+pub use profile::{ExecutionProfile, ProfileSettings, SavedCommand, ProfileHost, ProfileManager};

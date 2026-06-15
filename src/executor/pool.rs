@@ -1,12 +1,9 @@
 //! Connection pooling for remote execution
 
-use crate::error::Result;
 use std::collections::HashMap;
-use std::hash::Hash;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, RwLock};
-use tokio::time::interval;
 
 /// Pooled connection
 pub struct PooledConnection<T> {

@@ -395,6 +395,10 @@ mod tests {
 
     #[test]
     fn test_config_loader() {
+        // Clear any existing environment variables that might interfere
+        env::remove_var("PSEXEC_TIMEOUT");
+        env::remove_var("PSEXEC_CACHING");
+
         let loader = ConfigLoader::load();
         let config = loader.config();
         assert_eq!(config.timeout_seconds, 30);
@@ -403,9 +407,14 @@ mod tests {
 
     #[test]
     fn test_env_override() {
+        // Ensure clean state before test
+        env::remove_var("PSEXEC_TIMEOUT");
+
         env::set_var("PSEXEC_TIMEOUT", "90");
         let loader = ConfigLoader::load();
         assert_eq!(loader.config().timeout_seconds, 90);
+
+        // Clean up for other tests
         env::remove_var("PSEXEC_TIMEOUT");
     }
 }
