@@ -1,8 +1,8 @@
 # PAExec-rs 実装ロードマップ
 
 **作成日**: 2026-06-12  
-**最終更新**: 2026-06-12  
-**ステータス**: Phase 4.5 完了 → Phase 4.6/5 計画中
+**最終更新**: 2026-06-15  
+**ステータス**: Phase 4.6 完了 → Phase 5 計画中
 
 ---
 
@@ -14,8 +14,8 @@ Phase 8      ✅ バッチ処理・ログ・設定
 Phase 9-11   ✅ GUI 統合・コネクションプール・リトライ
 Phase 4.4    ✅ Command Palette 統合
 Phase 4.5    ✅ Pane Layout System
+Phase 4.6    ✅ Performance Optimization
 ═══════════════════════════════════════
-Phase 4.6    ⏳ Performance Optimization
 Phase 5      ⏳ 管理UI & 設定管理
 Phase 6      ⏳ テスト & CI/CD
 Phase 7      ⏳ デバッグ & 分析
@@ -374,11 +374,11 @@ Phase 7      ⏳ デバッグ & 分析
 - [x] レイアウト永続化 (JSON config)
 
 ### Phase 4.6
-- [ ] Damage tracking 実装
-- [ ] Memory pool 実装
-- [ ] パフォーマンス計測
-- [ ] 最適化実施
-- [ ] ベンチマーク実施
+- [x] Damage tracking 実装 (DamageTracker)
+- [x] Memory pool 実装 (MemoryPool, RectCalcPool)
+- [x] パフォーマンス計測 (PerfMetrics, PerfTarget)
+- [x] 最適化実施 (OptimizedLayoutSystem)
+- [x] ベンチマーク実施 (4 パフォーマンステスト)
 
 ### Phase 5
 - [ ] Settings Panel UI
